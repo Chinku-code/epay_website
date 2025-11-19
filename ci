@@ -1,1 +1,9 @@
+include:
+  - project: 'epay/devops/ci-templates'
+    ref: main
+    file: 'templates/microservices/gradle.java.yml'
 
+
+variables:
+  RELEASE_NAME: ops
+  CHART_NAME: operationsservice
