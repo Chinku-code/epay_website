@@ -46,3 +46,20 @@ data:
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+
+
+
+
+volume ---
+
+  - name: nginx-conf
+    configMap:
+      name: "{{ .Chart.Name }}-nginx"
+      items:
+        - key: nginx.conf
+          path: nginx.conf
+
+
+  - name: nginx-conf
+    mountPath: /etc/nginx/nginx.conf
+    subPath: nginx.conf
