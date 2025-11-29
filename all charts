@@ -9,3 +9,13 @@ server {
         try_files $uri $uri/ {{ .Values.prefix }}/index.html;
     }
 }
+
+configmap-nginx.yaml
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "Epay_Website.fullname" . }}-nginx
+data:
+  nginx.conf: |
+{{ tpl (.Files.Get "nginx.conf.template") . | indent 4 }}
