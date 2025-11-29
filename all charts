@@ -1,175 +1,19 @@
-
-replicaCount: 1
-
-image:
-  #repository: registry.dev.sbiepay.sbi:8443/ubi9/{{ .Chart.Name }}
-  repository: registry.dev.sbiepay.sbi:8443/ubi9/{{ .Chart.Name }}
-  pullPolicy: IfNotPresent
-  # Overrides the image tag whose default is the chart appVersion.
-  ##tag: "v-develop-20251118141414"
-  tag: "v-develop-20251118141414"
-  
-  
-
-imagePullSecrets: []
-nameOverride: ""
-fullnameOverride: ""
-serviceAccount: {}
-
-podAnnotations: {}
-podLabels: {}
-
-podSecurityContext: {}
-  # fsGroup: 2000
-
-configMap: {}
-
-
-securityContext: {}
-
-
-service:
-  type: ClusterIP
-  port: 8080
-
-ingress: {}
-
-
-namespace: dev-frontend
-gatewayName: dev-istio-system/dev-gateway
-virtualServiceName: dev-epay-website-epay-website    
-serviceName: websitefe-epay-website
-prefixName:  /transactiontracking
-servicePort: 8080
-gatewayPort: 80
-gatewayHost: "dev.epay.sbi"
-
-readinessProbe: {}
-livenessProbe: {}
-
-
-resources: {}
-  # We usually recommend not to specify default resources and to leave this as a conscious
-  # choice for the user. This also increases chances charts run on environments with little
-  # resources, such as Minikube. If you do want to specify resources, uncomment the following
-  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
-  # limits:
-  #   cpu: 100m
-  #   memory: 128Mi
-  # requests:
-  #   cpu: 100m
-  #   memory: 128Mi
-
-
-autoscaling:
-  enabled: false
-  minReplicas: 1
-  maxReplicas: 100
-  targetCPUUtilizationPercentage: 80
-  # targetMemoryUtilizationPercentage: 80
-
-# Additional volumes on the output Deployment definition.
-volumes: []
-# - name: foo
-#   secret:
-#     secretName: mysecret
-#     optional: false
-
-# Additional volumeMounts on the output Deployment definition.
-volumeMounts: []
-# - name: foo
-#   mountPath: "/etc/foo"
-#   readOnly: true
-
-nodeSelector: {}
-
-tolerations: []
-
-affinity: {}
-
-______charts___
-apiVersion: v2
-name: epay-website
-description: A Helm chart for Kubernetes
-
-# A chart can be either an 'application' or a 'library' chart.
-#
-# Application charts are a collection of templates that can be packaged into versioned archives
-# to be deployed.
-#
-# Library charts provide useful utilities or functions for the chart developer. They're included as
-# a dependency of application charts to inject those utilities and functions into the rendering
-# pipeline. Library charts do not define any templates and therefore cannot be deployed.
-type: application
-
-# This is the chart version. This version number should be incremented each time you make changes
-# to the chart and its templates, including the app version.
-# Versions are expected to follow Semantic Versioning (https://semver.org/)
-version: 0.1.0
-
-# This is the version number of the application being deployed. This version number should be
-# incremented each time you make changes to the application. Versions are not expected to
-# follow Semantic Versioning. They should reflect the version the application is using.
-# It is recommended to use it with quotes.
-appVersion: "1.16.0"
-
-                                                       
-___deployment_____
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: {{ include "Epay_Website.fullname" . }}
-  labels:
-    {{- include "Epay_Website.labels" . | nindent 4 }}
-spec:
-  {{- if not .Values.autoscaling.enabled }}
-  replicas: {{ .Values.replicaCount }}
-  {{- end }}
-  selector:
-    matchLabels:
-      {{- include "Epay_Website.selectorLabels" . | nindent 6 }}
-  template:
-    metadata:
-      {{- with .Values.podAnnotations }}
-      annotations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      labels:
-        {{- include "Epay_Website.labels" . | nindent 8 }}
-        {{- with .Values.podLabels }}
-        {{- toYaml . | nindent 8 }}
-        {{- end }}
-    spec:
-      {{- with .Values.imagePullSecrets }}
-      imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      serviceAccountName: {{ include "Epay_Website.serviceAccountName" . }}
-      securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
-      containers:
-        - name: {{ .Chart.Name }}
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ tpl .Values.image.repository $ }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          ports:
-            - name: http
-              containerPort: {{ .Values.service.port }}
-              protocol: TCP
-          resources:
-            {{- toYaml .Values.resources | nindent 12 }}
-          {{- with .Values.volumeMounts }}
-          volumeMounts:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-      {{- with .Values.volumes }}
-      volumes:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.nodeSelector }}
-      nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-
-
+.trigger_cd:
+  stage: deploy
+  variables:
+    DEPLOYMENT_BRANCH: "main"
+  trigger:
+    project: epay/devops/deployment
+    branch: $DEPLOYMENT_BRANCH
+    strategy: depend
+    forward:
+      pipeline_variables: true
+      yaml_variables: true
+  # manual_confirmation: 'Are you sure you want to deploy VERSION to ENV?'
+  # rules:
+  #   # - if: $CI_COMMIT_BRANCH =~ /^(main)|(develop)|(release)(\/.+)*$/ 
+  #   - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME =~ /^(main)|(develop)|(release)(\/.+)*$/
+  #     # default rule: preven the stage from running unless conditions are met
+  #     when: manual
+  #     allow_failure: true
+  #   - when: never  
