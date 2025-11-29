@@ -1,81 +1,119 @@
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: {{ include "Epay_Website.fullname" . }}
-  labels:
-    {{- include "Epay_Website.labels" . | nindent 4 }}
-spec:
-  {{- if not .Values.autoscaling.enabled }}
-  replicas: {{ .Values.replicaCount }}
-  {{- end }}
-  selector:
-    matchLabels:
-      {{- include "Epay_Website.selectorLabels" . | nindent 6 }}
-  template:
-    metadata:
-      {{- with .Values.podAnnotations }}
-      annotations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      labels:
-        {{- include "Epay_Website.labels" . | nindent 8 }}
-        {{- with .Values.podLabels }}
-        {{- toYaml . | nindent 8 }}
-        {{- end }}
-    spec:
-      {{- with .Values.imagePullSecrets }}
-      imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+$ set -eo pipefail # collapsed multi-line command
+Deploying "websitefe" to dev-frontend...
+Chart path: /tmp/builds/epay/devops/deployment/dev/charts/epay_website
+Executing: helm upgrade --install "websitefe" /tmp/builds/epay/devops/deployment/dev/charts/epay_website   --namespace dev-frontend   --history-max 10   --timeout 15m
+Error: cannot load values.yaml: error converting YAML to JSON: yaml: line 80: did not find expected key
+Error: Helm deployment failed
+Last 5 revisions:
+Error: release name is invalid: "websitefe"
+Cleaning up project directory and file based variables
+00:01
+ERROR: Job failed: exit code 1
 
-      serviceAccountName: {{ include "Epay_Website.serviceAccountName" . }}
+values.yaml
 
-      securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+## Default values for Epay_Merchant_FE.
+### This is a YAML-formatted file.
+### Declare variables to be passed into your templates.
 
-      containers:
-        - name: {{ .Chart.Name }}
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
+replicaCount: 1
 
-          image: "{{ tpl .Values.image.repository $ }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+image:
+  #repository: registry.dev.sbiepay.sbi:8443/ubi9/{{ .Chart.Name }}
+  repository: registry.dev.sbiepay.sbi:8443/ubi9/{{ .Chart.Name }}
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  ##tag: "v-develop-20251128142703"
+  tag: "v-develop-20251128142703"
+  
+  
 
-          ports:
-            - name: http
-              containerPort: {{ .Values.service.port }}
-              protocol: TCP
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+serviceAccount: {}
 
-          resources:
-            {{- toYaml .Values.resources | nindent 12 }}
+podAnnotations: {}
+podLabels: {}
 
-          # ------------------------------------------
-          # ⬇️ MOUNT NGINX CONFIG (NEW)
-          # ------------------------------------------
-          {{- with .Values.volumeMounts }}
-          volumeMounts:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
+podSecurityContext: {}
+  # fsGroup: 2000
 
-      # ------------------------------------------
-      # ⬇️ ADD NGINX CONFIG VOLUME (NEW)
-      # ------------------------------------------
-      {{- with .Values.volumes }}
-      volumes:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+configMap: {}
 
-      {{- with .Values.nodeSelector }}
-      nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
 
-      {{- with .Values.tolerations }}
-      tolerations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+securityContext: {}
 
-      {{- with .Values.affinity }}
-      affinity:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress: {}
+
+
+namespace: dev-frontend
+gatewayName: dev-istio-system/dev-gateway
+virtualServiceName: dev-epay-website-epay-website    
+serviceName: websitefe-epay-website
+#prefixName:  /transactiontracking
+prefixName:  /home
+servicePort: 8080
+gatewayPort: 80
+gatewayHost: "dev.epay.sbi"
+
+readinessProbe: {}
+livenessProbe: {}
+
+
+resources: {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+# Additional volumes on the output Deployment definition.
+volumes: []
+# - name: foo
+#   secret:
+#     secretName: mysecret
+#     optional: false
+  - name: nginx-conf
+    configMap:
+      name: "{{ .Chart.Name }}-nginx"
+      items:
+        - key: nginx.conf
+          path: nginx.conf
+
+# Additional volumeMounts on the output Deployment definition.
+volumeMounts: []
+# - name: foo
+#   mountPath: "/etc/foo"
+#   readOnly: true
+  - name: nginx-conf
+    mountPath: /etc/nginx/nginx.conf
+    subPath: nginx.conf
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+
+
+
