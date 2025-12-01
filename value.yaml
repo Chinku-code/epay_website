@@ -1,0 +1,105 @@
+## Default values for Epay_Merchant_FE.
+## This is a YAML-formatted file.
+### Declare variables to be passed into your templates.
+
+replicaCount: 1
+
+image:
+  #repository: registry.dev.sbiepay.sbi:8443/ubi9/{{ .Chart.Name }}
+  repository: registry.dev.sbiepay.sbi:8443/ubi9/{{ .Chart.Name }}
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  ##tag: "v-develop-20251128142703"
+  tag: "v-develop-20251128142703"
+  
+  
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+serviceAccount: {}
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext: {}
+  # fsGroup: 2000
+
+configMap: {}
+
+
+securityContext: {}
+
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress: {}
+
+
+namespace: dev-frontend
+gatewayName: dev-istio-system/dev-gateway
+virtualServiceName: dev-epay-website-epay-website    
+serviceName: websitefe-epay-website
+#prefixName:  /transactiontracking
+prefixName:  /home
+servicePort: 8080
+gatewayPort: 80
+gatewayHost: "dev.epay.sbi"
+
+readinessProbe: {}
+livenessProbe: {}
+
+
+resources: {}
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as Minikube. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+# Additional volumes on the output Deployment definition.
+volumes: 
+# - name: foo
+#   secret:
+#     secretName: mysecret
+#     optional: false
+  - name: nginx-conf
+    configMap:
+      name: "{{ .Chart.Name }}-nginx"
+      items:
+        - key: nginx.conf
+          path: nginx.conf
+
+# Additional volumeMounts on the output Deployment definition.
+volumeMounts: 
+# - name: foo
+#   mountPath: "/etc/foo"
+#   readOnly: true
+  - name: nginx-conf
+    mountPath: /etc/nginx/nginx.conf
+    subPath: nginx.conf
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+
+
+
