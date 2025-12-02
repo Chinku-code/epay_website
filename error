@@ -1,101 +1,38 @@
-deploy:
-  stage: deploy
-  extends: 
-    - .helm_image
-    - .helm_variables
-    - .openshift_login_setup
-  allow_failure: false
-  needs:
-    - job: validate_service
-      artifacts: true
-  script:
-    - |
-      set -eo pipefail
-      
-      # Verify required variables from validate_service
-      if [ -z "$SERVICE_NAME" ] || [ -z "$ENV" ]; then
-        echo "Error: SERVICE_NAME or ENV not set. This job should only run after validate_service."
-        exit 1
-      fi
-      
-      if [ -z "$KUBE_NAMESPACE" ] || [ -z "$RELEASE_NAME" ] || [ -z "$CHART_PATH" ]; then
-        echo "Error: Required variables from validate_service are missing:"
-        echo "KUBE_NAMESPACE: $KUBE_NAMESPACE"
-        echo "RELEASE_NAME: $RELEASE_NAME"
-        echo "CHART_PATH: $CHART_PATH"
-        exit 1
-      fi
-      
-      # Verify chart path exists
-      if [ ! -d "$CHART_PATH" ]; then
-        echo "Error: Chart path does not exist: $CHART_PATH"
-        exit 1
-      fi
-      
-      echo "Deploying ${RELEASE_NAME} to ${KUBE_NAMESPACE}..."
-      echo "Chart path: ${CHART_PATH}"
-      
-      case $ENV in                                                     #added new line 
-        dev)
-          IMAGE_REGISTRY="$DEV_IMAGE_REGISTRY"
-          ;;
-        int)
-          IMAGE_REGISTRY="$INT_IMAGE_REGISTRY"
-          ;;
-        sit)
-          IMAGE_REGISTRY="$SIT_IMAGE_REGISTRY"
-          ;;
-        uat)
-          IMAGE_REGISTRY="$UAT_IMAGE_REGISTRY"
-          ;;
-        perf)
-          IMAGE_REGISTRY="$PERF_IMAGE_REGISTRY"
-          ;;
-        pre-prod)
-          IMAGE_REGISTRY="$PREPROD_IMAGE_REGISTRY"
-          ;;
-        *)
-          echo "❌ ERROR: Unsupported environment for registry mapping"
-          exit 1
-          ;;
-      esac                                                               # end here 
-      
-      if ! oc get namespace "${KUBE_NAMESPACE}" &>/dev/null; then
-        echo "Creating namespace ${KUBE_NAMESPACE}..."
-        oc create namespace "${KUBE_NAMESPACE}"
-      fi
-      
-      # helm lint ${CHART_PATH} --debug
-      # helm template ${CHART_PATH} --debug
-      #helm upgrade --install ${RELEASE_NAME} ${CHART_PATH} --dry-run --debug
+case $ENV in
+  dev)
+    IMAGE_REGISTRY="$DEV_IMAGE_REGISTRY"
+    ;;
+  int)
+    IMAGE_REGISTRY="$INT_IMAGE_REGISTRY"
+    ;;
+  sit)
+    IMAGE_REGISTRY="$SIT_IMAGE_REGISTRY"
+    ;;
+  uat)
+    IMAGE_REGISTRY="$UAT_IMAGE_REGISTRY"
+    ;;
+  perf)
+    IMAGE_REGISTRY="$PERF_IMAGE_REGISTRY"
+    ;;
+  pre-prod)
+    IMAGE_REGISTRY="$PREPROD_IMAGE_REGISTRY"
+    ;;
+  *)
+    echo "❌ ERROR: Unsupported environment for registry mapping"
+    exit 1
+    ;;
+esac
 
-      HELM_CMD="helm upgrade --install ${RELEASE_NAME} ${CHART_PATH} \
-        --namespace ${KUBE_NAMESPACE} \
-        --history-max ${HELM_HISTORY_MAX} \
-        --timeout ${DEPLOYMENT_TIMEOUT}"
+HELM_CMD="helm upgrade --install ${RELEASE_NAME} ${CHART_PATH} \
+  --namespace ${KUBE_NAMESPACE} \
+  --history-max ${HELM_HISTORY_MAX} \
+  --timeout ${DEPLOYMENT_TIMEOUT}"
 
-      if [ "${HELM_ATOMIC}" = "true" ]; then
-        HELM_CMD="${HELM_CMD} --atomic"
-      fi
-      
-      if [ -n "$VERSION" ]; then
-        echo "Using explicit version: $VERSION"
-        HELM_CMD="${HELM_CMD} \                                            #changes new line
-          --set image.repository=${IMAGE_REGISTRY}${SERVICE_NAME} \
-          --set image.tag=${VERSION}"                                      #end line 
-      fi
+if [ "${HELM_ATOMIC}" = "true" ]; then
+  HELM_CMD="${HELM_CMD} --atomic"
+fi
 
-      if [ -n "$HELM_EXTRA_ARGS" ]; then
-        echo "Adding extra helm arguments: $HELM_EXTRA_ARGS"
-        HELM_CMD="${HELM_CMD} ${HELM_EXTRA_ARGS}"
-      fi
-
-      echo "Executing: $HELM_CMD"
-      if ! eval "$HELM_CMD"; then
-        echo "Error: Helm deployment failed"
-        echo "Last 5 revisions:"
-        helm history "${RELEASE_NAME}" --namespace "${KUBE_NAMESPACE}" --max 5
-        exit 1
-      fi
-  rules:    
-    - when: always
+if [ -n "$VERSION" ]; then
+  echo "Using explicit version: $VERSION"
+  HELM_CMD="$HELM_CMD --set image.repository=${IMAGE_REGISTRY}${SERVICE_NAME} --set image.tag=${VERSION}"
+fi
