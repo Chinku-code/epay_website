@@ -1,5 +1,4 @@
-# nginx.conf template (rendered by Helm into ConfigMap)
-# Using variables:
+# Using values:
 #   {{ .Values.gatewayHost }}
 #   {{ .Values.prefixName }}
 
@@ -9,73 +8,63 @@ worker_processes  1;
 error_log  /dev/stderr warn;
 pid        /var/run/nginx.pid;
 
-events {
-  worker_connections  1024;
-}
+events { worker_connections 1024; }
 
 http {
+  log_format main 'ACCESS: $remote_addr - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent"';
+  access_log /dev/stdout main;
+  include       mime.types;
 
-    log_format main 'ACCESS: $remote_addr - $remote_user [$time_local] "$request" $status $body_bytes_sent "$http_referer" "$http_user_agent"';
-    access_log /dev/stdout main;
-    include       mime.types;
+  set_real_ip_from 0.0.0.0/0;
+  real_ip_recursive on;
+  real_ip_header    X-Forwarded-For;
 
-    set_real_ip_from    0.0.0.0/0;
-    real_ip_recursive   on;
-    real_ip_header      X-Forwarded-For;
+  limit_req_zone  $binary_remote_addr zone=mylimit:10m rate=10r/s;
+  limit_conn_zone $binary_remote_addr zone=limitperip:10m;
 
-    limit_req_zone      $binary_remote_addr zone=mylimit:10m rate=10r/s;
-    limit_conn_zone     $binary_remote_addr zone=limitperip:10m;
+  client_body_buffer_size 1k;
+  client_header_buffer_size 1k;
+  client_max_body_size 1m;
+  large_client_header_buffers 2 1k;
 
-    client_body_buffer_size 1k;
-    client_header_buffer_size 1k;
-    client_max_body_size 1m;
-    large_client_header_buffers 2 1k;
+  client_header_timeout 10s;
+  client_body_timeout   10s;
 
-    client_header_timeout 10s;
-    client_body_timeout 10s;
+  server {
+    listen 8080;
+    server_name {{ .Values.gatewayHost | default "localhost" }};
 
-    server {
-        listen 8080;
-        server_name {{ .Values.gatewayHost | default "localhost" }};
+    root /usr/share/nginx/html;
 
-        root /usr/share/nginx/html;
+    limit_req zone=mylimit burst=70 nodelay;
+    limit_conn limitperip 10;
 
-        limit_req zone=mylimit burst=70 nodelay;
-        limit_conn limitperip 10;
+    if ($request_method !~ ^(GET|HEAD|POST)$) { return 444; }
 
-        if ($request_method !~ ^(GET|HEAD|POST)$) {
-            return 444;
-        }
+    server_tokens off;
+    keepalive_timeout 15s;
+    keepalive_requests 10000;
 
-        server_tokens off;
-        keepalive_timeout 15s;
-        keepalive_requests 10000;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
 
-        add_header X-Frame-Options "SAMEORIGIN" always;
-        add_header X-Content-Type-Options "nosniff" always;
-        add_header X-XSS-Protection "1; mode=block" always;
-        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
-
-        # Application path - prefixName value from values.yaml
-        location {{ .Values.prefixName | default "/" }} {
-            index index.html index.htm;
-            alias /usr/share/nginx/html{{ .Values.prefixName | default "/" }};
-            try_files $uri $uri/ {{ .Values.prefixName }}/index.html;
-        }
-
-        # Fallback static root (if you mount whole site)
-        location / {
-            try_files $uri $uri/ /index.html;
-        }
-
-        error_page 500 502 503 504 /50x.html;
-        location = /50x.html {
-            root /usr/share/nginx/html;
-        }
-
-        location ~ /\. {
-            deny all;
-            return 404;
-        }
+    # Serve from a sub-path (prefix)
+    location {{ .Values.prefixName | default "/" }} {
+      index index.html index.htm;
+      alias /usr/share/nginx/html{{ .Values.prefixName | default "/" }};
+      try_files $uri $uri/ {{ .Values.prefixName }}/index.html;
     }
+
+    # fallback (if you ever mount whole site at /)
+    location / {
+      try_files $uri $uri/ /index.html;
+    }
+
+    error_page 500 502 503 504 /50x.html;
+    location = /50x.html { root /usr/share/nginx/html; }
+
+    location ~ /\. { deny all; return 404; }
+  }
 }
