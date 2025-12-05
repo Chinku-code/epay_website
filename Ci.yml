@@ -1,23 +1,34 @@
-# ================
-# ROOT PIPELINE
-# ================
-
-stages:
-  - build
-  - dockerbuild
-  - promote
-  - trigger_cd
-
+###############################################
+# 1) TEMPLATE INCLUDE (ONLY ONE NEEDED)
+###############################################
 include:
   - project: 'epay/devops/ci-templates'
     ref: feature/CIfrontend
-    file: 'ci/release/version.yml'
+    file: 'ci/build/vite.react.yml'
 
-  - project: 'epay/devops/ci-templates'
-    ref: feature/CIfrontend
-    file: 'cd/helm/services.yml'
+  # Your custom overrides
+  - local: 'dynamic.yml'
 
-  # ⚠️ IMPORTANT: dynamic.yml MUST COME LAST
-  - project: 'epay/devops/ci-templates'
-    ref: feature/CIfrontend
-    file: 'templates/fe/dynamic.yml'
+
+###############################################
+# 2) DEFAULT IMAGE OVERRIDE
+###############################################
+default:
+  image: registry.dev.sbiepay.sbi:8443/library/rhelgit:latest
+
+
+###############################################
+# 3) GLOBAL VARIABLES
+###############################################
+variables:
+  APP_NAME: "epay-website"
+  RELEASE_NAME: "websitefe"
+  CHART_NAME: "epay-website"
+
+  PODMAN_TLS_VERIFY: "false"
+
+  # Dynamic URLs (sent to Helm)
+  SIT_APP_BASE_URL: "https://sit-api.example.sbi"
+  UAT_APP_BASE_URL: "https://uat-api.example.sbi"
+  PREPROD_APP_BASE_URL: "https://preprod-api.example.sbi"
+  PROD_APP_BASE_URL: "https://api.example.sbi"
