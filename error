@@ -1,1 +1,15 @@
-This GitLab CI configuration is invalid: Maximum of 150 nested includes are allowed!
+WARNING: Using insecure TLS client config. Setting this option is not supported!
+Logged into "https://api.dev.sbiepay.sbi:6443" as "system:serviceaccount:dev-sbiepay:cicd-sa" using the token provided.
+You have access to 195 projects, the list has been suppressed. You can list all projects with 'oc projects'
+Using project "default".
+Welcome! See 'oc help' to get started.
+Successfully switched to namespace dev-frontend
+$ set -eo pipefail # collapsed multi-line command
+Deploying "websitefe" to dev-frontend...
+Chart path: /tmp/builds/epay/devops/deployment/dev/charts/epay_website
+Executing: helm upgrade --install "websitefe" /tmp/builds/epay/devops/deployment/dev/charts/epay_website   --namespace dev-frontend   --history-max 10   --timeout 15m
+Error: UPGRADE FAILED: template: epay-website/templates/service.yaml:4:11: executing "epay-website/templates/service.yaml" at <include "Epay-Website.fullname" .>: error calling include: template: no template "Epay-Website.fullname" associated with template "gotpl"
+Error: Helm deployment failed
+Last 5 revisions:
+Error: release name is invalid: "websitefe"
+Cleaning up project directory and file based variables
