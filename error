@@ -1,16 +1,1 @@
-include:
-  - project: 'epay/devops/ci-templates'
-    ref: feature/CIfrontend
-    file: 'templates/fe/dynamic.yml'
-  - project: 'epay/devops/ci-templates'
-    ref: feature/CIfrontend
-    file: 'ci/release/version.yml'
-  - project: 'epay/devops/ci-templates'
-    ref: feature/CIfrontend
-    file: 'cd/helm/services.yml'
-
-# ============================
-# OVERRIDE TEMPLATE DEFAULT IMAGE
-# ============================
-.default:
-  image: registry.dev.sbiepay.sbi:8443/library/rhelgit:latest
+This GitLab CI configuration is invalid: Maximum of 150 nested includes are allowed!
