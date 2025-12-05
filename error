@@ -1,3 +1,8 @@
+ci-templates
+templates
+fe
+dynamic.yml
+
 include:
   - project: 'epay/devops/ci-templates'
     ref: main
