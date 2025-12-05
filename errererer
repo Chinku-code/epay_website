@@ -1,1 +1,24 @@
-'promote_to_sit' job needs 'dockerbuild' job, but 'dockerbuild' is not in any previous stage 'promote_to_uat' job needs 'dockerbuild' job, but 'dockerbuild' is not in any previous stage 'promote_to_preprod' job needs 'dockerbuild' job, but 'dockerbuild' is not in any previous stage 'promote_to_prod' job needs 'dockerbuild' job, but 'dockerbuild' is not in any previous stage
+# =====================================
+# FORCE STAGES (OVERRIDES ALL TEMPLATES)
+# =====================================
+stages:
+  - build
+  - dockerbuild
+  - promote
+  - trigger_cd
+
+# ============================
+# INCLUDE YOUR TEMPLATE FILES
+# ============================
+include:
+  - project: 'epay/devops/ci-templates'
+    ref: feature/CIfrontend
+    file: 'templates/fe/dynamic.yml'
+
+  - project: 'epay/devops/ci-templates'
+    ref: feature/CIfrontend
+    file: 'ci/release/version.yml'
+
+  - project: 'epay/devops/ci-templates'
+    ref: feature/CIfrontend
+    file: 'cd/helm/services.yml'
