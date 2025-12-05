@@ -1,13 +1,6 @@
-include:
-  - project: 'epay/devops/ci-templates'
-    ref: feature/CIfrontend
-    file: 'templates/fe/dynamic.yml'
-  - project: 'epay/devops/ci-templates'
-    ref: feature/CIfrontend
-    file: 'ci/release/version.yml'
-  - project: 'epay/devops/ci-templates'
-    ref: feature/CIfrontend
-    file: 'cd/helm/services.yml'
+# ================
+# ROOT PIPELINE
+# ================
 
 stages:
   - build
@@ -15,11 +8,16 @@ stages:
   - promote
   - trigger_cd
 
-variables:
-  APP_NAME: "epay-website"
+include:
+  - project: 'epay/devops/ci-templates'
+    ref: feature/CIfrontend
+    file: 'ci/release/version.yml'
 
-  DEV_IMAGE_REGISTRY: "registry.dev.sbiepay.sbi:8443/ubi9/"
-  SIT_IMAGE_REGISTRY: "registry.dev.sbiepay.sbi:8443/library/"
-  UAT_IMAGE_REGISTRY: "registry.dev.sbiepay.sbi:8443/library/"
-  PREPROD_IMAGE_REGISTRY: "epaynonprod-registry-quay-quay-enterprise.apps.preprod.epay.sbi/fe/"
-  PROD_IMAGE_REGISTRY: "registry.prod.epay.sbi:8443/fe/"
+  - project: 'epay/devops/ci-templates'
+    ref: feature/CIfrontend
+    file: 'cd/helm/services.yml'
+
+  # ⚠️ IMPORTANT: dynamic.yml MUST COME LAST
+  - project: 'epay/devops/ci-templates'
+    ref: feature/CIfrontend
+    file: 'templates/fe/dynamic.yml'
