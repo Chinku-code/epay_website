@@ -1,20 +1,10 @@
-This GitLab CI configuration is invalid: validate_service: circular dependency detected in `extends`.
-
-# .gitlab-ci.yml for epay-website (frontend)
-include:
-  - project: 'epay/devops/ci-templates'
-    ref: feature/CIfrontend
-    #file: 'templates/fe/vite.react.yml'        # optional: if you want to reuse template
-  - project: 'epay/devops/ci-templates'
-    ref: feature/CIfrontend
-    file: 'ci/release/version.yml'
-  - project: 'epay/devops/ci-templates'
-    ref: feature/CIfrontend
-    file: 'cd/helm/services.yml'
-
-# -----------------------------------
-# Override validate_service image only for this repo
-# -----------------------------------
-validate_service:
+.validate_service_override:
   image: registry.dev.sbiepay.sbi:8443/library/rhelgit:latest
-  extends: validate_service
+validate_service:
+  extends:
+    - .validate_service_override
+    - validate_service_base
+
+
+
+This GitLab CI configuration is invalid: validate_service: unknown keys in `extends` (validate_service_base).
