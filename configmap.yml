@@ -1,10 +1,10 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "epay-website.fullname" . }}-nginx
+  name: {{ include "Epay_Website.fullname" . }}-nginx
   labels:
-    app.kubernetes.io/name: {{ include "epay-website.name" . }}
-    app.kubernetes.io/instance: {{ .Release.Name }}
+    {{- include "Epay_Website.labels" . | nindent 4 }}
+
 data:
   nginx.conf: |-
-{{ tpl (.Files.Get "templates/nginx.conf.template") . | nindent 4 }}
+{{ tpl (.Files.Get "nginx.conf.template") . | nindent 4 }}
