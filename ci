@@ -18,18 +18,19 @@ default:
   stage: promote
   image: quay.io/podman/stable:latest
   script:
-    - echo "Loading docker.env…"
-    - test -f docker.env && source docker.env
+    - echo "Loading docker.env..."
+    - if [ -f docker.env ]; then source docker.env; fi
     - export IMAGE_TAG="${IMAGE_TAG:-$CI_COMMIT_SHORT_SHA}"
     - export SOURCE_IMAGE="${DEV_IMAGE_REGISTRY}${APP_NAME}:${IMAGE_TAG}"
-    - echo "Promoting: $SOURCE_IMAGE -> $TARGET_REGISTRY_HOST/$TARGET_REGISTRY_PATH:$IMAGE_TAG"
-    - podman login -u "$TARGET_REGISTRY_USERNAME" -p "$TARGET_REGISTRY_PASSWORD" "$TARGET_REGISTRY_HOST"
-    - podman pull "$SOURCE_IMAGE"
+    - echo "Promoting image: $SOURCE_IMAGE"
+    - echo "Target: $TARGET_REGISTRY_HOST/$TARGET_REGISTRY_PATH:$IMAGE_TAG"
+    - podman login -u "$TARGET_REGISTRY_USERNAME" -p "$TARGET_REGISTRY_PASSWORD" "$TARGET_REGISTRY_HOST" --tls-verify=false
+    - podman pull "$SOURCE_IMAGE" --tls-verify=false
     - podman tag "$SOURCE_IMAGE" "$TARGET_REGISTRY_HOST/$TARGET_REGISTRY_PATH:$IMAGE_TAG"
-    - podman push "$TARGET_REGISTRY_HOST/$TARGET_REGISTRY_PATH:$IMAGE_TAG"
-  when: manual
+    - podman push "$TARGET_REGISTRY_HOST/$TARGET_REGISTRY_PATH:$IMAGE_TAG" --tls-verify=false
   rules:
     - when: manual
+  when: manual
 
 #############################################
 # PROMOTE JOBS
@@ -57,7 +58,7 @@ promote_to_preprod:
 
 promote_to_prod:
   extends: .promote_template
-  needs: ["dockerbuild-prod-dc"]    # PROD IMAGE
+  needs: ["dockerbuild-prod-dc"]
   variables:
     TARGET_REGISTRY_HOST: "$PROD_IMAGE_REGISTRY"
     TARGET_REGISTRY_PATH: "fe/$APP_NAME"
@@ -74,9 +75,9 @@ promote_to_prod:
     forward:
       pipeline_variables: true
       yaml_variables: true
-  when: manual
   rules:
     - when: manual
+  when: manual
 
 #############################################
 # CD JOBS
