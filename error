@@ -1,14 +1,1 @@
-validate_fe:
-  image: registry.dev.sbiepay.sbi:8443/library/rhelgit:latest
-
-validate_service:
-  image: registry.dev.sbiepay.sbi:8443/library/rhelgit:latest
-
-pre_validate:
-  image: registry.dev.sbiepay.sbi:8443/library/rhelgit:latest
-
-lint:
-  image: registry.dev.sbiepay.sbi:8443/library/rhelgit:latest
-
-check:
-  image: registry.dev.sbiepay.sbi:8443/library/rhelgit:latest
+This GitLab CI configuration is invalid: Maximum of 150 nested includes are allowed!
