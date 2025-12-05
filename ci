@@ -1,9 +1,2 @@
-include:
-  - project: 'epay/devops/ci-templates'
-    ref: main
-    file: 'templates/fe/vite.react.yml'
-
-
-variables:
-  RELEASE_NAME: websitefe   
-  CHART_NAME: epay-website
+Unable to create pipeline
+'promote_to_sit' job needs 'dockerbuild' job, but 'dockerbuild' is not in any previous stage 'promote_to_uat' job needs 'dockerbuild' job, but 'dockerbuild' is not in any previous stage 'promote_to_preprod' job needs 'dockerbuild' job, but 'dockerbuild' is not in any previous stage 'promote_to_prod' job needs 'dockerbuild' job, but 'dockerbuild' is not in any previous stage
