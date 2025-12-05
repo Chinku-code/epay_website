@@ -1,2 +1,1 @@
-Unable to create pipeline
-Maximum of 150 nested includes are allowed!
+jobs:promote_to_sit:script config should be a string or a nested array of strings up to 10 levels deep
