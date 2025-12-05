@@ -1,1 +1,139 @@
-jobs:promote_to_sit:script config should be a string or a nested array of strings up to 10 levels deep
+#############################################
+# INCLUDES (your template CI)
+#############################################
+include:
+  - project: 'epay/devops/ci-templates'
+    ref: feature/CIfrontend
+    file: 'ci/build/vite.react.yml'
+  - project: 'epay/devops/ci-templates'
+    ref: feature/CIfrontend
+    file: 'ci/release/version.yml'
+  - project: 'epay/devops/ci-templates'
+    ref: feature/CIfrontend
+    file: 'cd/helm/services.yml'
+
+#############################################
+# GLOBAL DEFAULT IMAGE
+#############################################
+default:
+  image: registry.dev.sbiepay.sbi:8443/library/rhelgit:latest
+
+#############################################
+# GLOBAL VARIABLES
+#############################################
+variables:
+  APP_NAME: "epay-website"
+  RELEASE_NAME: "websitefe"
+  CHART_NAME: "epay-website"
+
+  PODMAN_TLS_VERIFY: "false"
+
+  SIT_APP_BASE_URL: "https://sit-api.example.sbi"
+  UAT_APP_BASE_URL: "https://uat-api.example.sbi"
+  PREPROD_APP_BASE_URL: "https://preprod-api.example.sbi"
+  PROD_APP_BASE_URL: "https://api.example.sbi"
+
+#############################################
+# PROMOTE TEMPLATE (FINAL FIXED)
+#############################################
+.promote_template: &promote_template
+  stage: promote
+  image: quay.io/podman/stable:latest
+  needs:
+    - dockerbuild-dev       # 👈 MUST EXIST IN YOUR TEMPLATE
+  script:
+    - echo "Loading docker.env..."
+    - source docker.env
+    - export SOURCE_IMAGE="${DEV_IMAGE_REGISTRY}${APP_NAME}:${IMAGE_TAG}"
+    - echo "Promoting: $SOURCE_IMAGE"
+    - podman login -u "$TARGET_REGISTRY_USERNAME" -p "$TARGET_REGISTRY_PASSWORD" "$TARGET_REGISTRY_HOST"
+    - podman pull "$SOURCE_IMAGE"
+    - podman tag "$SOURCE_IMAGE" "$TARGET_REGISTRY_HOST/$TARGET_REGISTRY_PATH:$IMAGE_TAG"
+    - podman push "$TARGET_REGISTRY_HOST/$TARGET_REGISTRY_PATH:$IMAGE_TAG"
+  when: manual
+  rules:
+    - when: manual
+
+#############################################
+# PROMOTE JOBS (ALL ENV)
+#############################################
+
+promote_to_sit:
+  <<: *promote_template
+  needs:
+    - dockerbuild-sit
+  variables:
+    TARGET_REGISTRY_HOST: "$SIT_IMAGE_REGISTRY"
+    TARGET_REGISTRY_PATH: "ubi9/$APP_NAME"
+
+promote_to_uat:
+  <<: *promote_template
+  needs:
+    - dockerbuild-uat
+  variables:
+    TARGET_REGISTRY_HOST: "$UAT_IMAGE_REGISTRY"
+    TARGET_REGISTRY_PATH: "fe/$APP_NAME"
+
+promote_to_preprod:
+  <<: *promote_template
+  needs:
+    - dockerbuild-pre-prod
+  variables:
+    TARGET_REGISTRY_HOST: "$PREPROD_IMAGE_REGISTRY"
+    TARGET_REGISTRY_PATH: "fe/$APP_NAME"
+
+promote_to_prod:
+  <<: *promote_template
+  needs:
+    - dockerbuild-prod-dc
+  variables:
+    TARGET_REGISTRY_HOST: "$PROD_IMAGE_REGISTRY"
+    TARGET_REGISTRY_PATH: "fe/$APP_NAME"
+
+#############################################
+# CD TRIGGER TEMPLATE
+#############################################
+.trigger_cd_job: &trigger_cd_job
+  stage: trigger_cd
+  trigger:
+    project: "epay/devops/deployment"
+    branch: "feature/dynamicnginx"
+    strategy: depend
+    forward:
+      pipeline_variables: true
+      yaml_variables: true
+  when: manual
+  rules:
+    - when: manual
+
+#############################################
+# DEPLOY (CD)
+#############################################
+
+trigger_deploy_sit:
+  <<: *trigger_cd_job
+  variables:
+    ENV: sit
+    SERVICE_NAME: $CI_PROJECT_NAME
+    APP_BASE_URL: $SIT_APP_BASE_URL
+
+trigger_deploy_uat:
+  <<: *trigger_cd_job
+  variables:
+    ENV: uat
+    SERVICE_NAME: $CI_PROJECT_NAME
+    APP_BASE_URL: $UAT_APP_BASE_URL
+
+trigger_deploy_preprod:
+  <<: *trigger_cd_job
+  variables:
+    ENV: pre-prod
+    SERVICE_NAME: $CI_PROJECT_NAME
+    APP_BASE_URL: $PREPROD_APP_BASE_URL
+
+trigger_deploy_prod:
+  <<: *trigger_cd_job
+  variables:
+    ENV: prod
+    SERVICE_NAME: $CI_PROJECT_NAME
+    APP_BASE_URL: $PROD_APP_BASE_URL
