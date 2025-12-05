@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "epay-website.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "epay-website.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: {{ include "epay-website.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
