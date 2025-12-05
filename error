@@ -1,57 +1,205 @@
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: {{ include "Epay_Website.fullname" . }}
-  labels:
-    {{- include "Epay_Website.labels" . | nindent 4 }}
-spec:
-  {{- if not .Values.autoscaling.enabled }}
-  replicas: {{ .Values.replicaCount }}
-  {{- end }}
-  selector:
-    matchLabels:
-      {{- include "Epay_Website.selectorLabels" . | nindent 6 }}
-  template:
-    metadata:
-      {{- with .Values.podAnnotations }}
-      annotations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      labels:
-        {{- include "Epay_Website.labels" . | nindent 8 }}
-        {{- with .Values.podLabels }}
-        {{- toYaml . | nindent 8 }}
-        {{- end }}
-    spec:
-      {{- with .Values.imagePullSecrets }}
-      imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      serviceAccountName: {{ include "Epay_Website.serviceAccountName" . }}
-      securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
-      containers:
-        - name: {{ .Chart.Name }}
-          securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ tpl .Values.image.repository $ }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          ports:
-            - name: http
-              containerPort: {{ .Values.service.port }}
-              protocol: TCP
-          resources:
-            {{- toYaml .Values.resources | nindent 12 }}
-          {{- with .Values.volumeMounts }}
-          volumeMounts:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-      {{- with .Values.volumes }}
-      volumes:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.nodeSelector }}
-      nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+stages:
+  - build
+  - dockerbuild
+  - promote
+  - trigger_cd
 
+# ===========================================
+# VARIABLES
+# ===========================================
+default:
+  image: registry.dev.sbiepay.sbi:8443/library/rhelgit:latest
+
+variables:
+  PODMAN_TLS_VERIFY: "false"
+
+variables:
+  RELEASE_NAME: "websitefe"
+  CHART_NAME: "epay-website"
+  APP_NAME: "epay-website"
+  VERSION: "${CI_COMMIT_SHORT_SHA}"
+
+  DEV_IMAGE_REGISTRY: "registry.dev.sbiepay.sbi:8443/ubi9/"
+  INT_IMAGE_REGISTRY: "registry.dev.sbiepay.sbi:8443/library/"
+  SIT_IMAGE_REGISTRY: "registry.dev.sbiepay.sbi:8443/library/"
+  UAT_IMAGE_REGISTRY: "registry.dev.sbiepay.sbi:8443/library/"
+  PERF_IMAGE_REGISTRY: "epaynonprod-registry-quay-quay-enterprise.apps.preprod.epay.sbi/fe/"
+  PREPROD_IMAGE_REGISTRY: "epaynonprod-registry-quay-quay-enterprise.apps.preprod.epay.sbi/fe/"
+  PROD_IMAGE_REGISTRY: "registry.prod.epay.sbi:8443/fe/"
+
+  PODMAN_TLS_VERIFY: "false"
+
+  # Dynamic NGINX API URLs passed at deploy time
+  SIT_APP_BASE_URL: "https://sit-api.example.sbi"
+  UAT_APP_BASE_URL: "https://uat-api.example.sbi"
+  PREPROD_APP_BASE_URL: "https://preprod-api.example.sbi"
+  PROD_APP_BASE_URL: "https://api.example.sbi"
+
+# ===========================================
+# 1) BUILD FRONTEND
+# ===========================================
+build:
+  stage: build
+  image: node:18-alpine
+  script:
+    - npm ci
+    - npm run build
+  artifacts:
+    paths:
+      - dist
+    expire_in: 1h
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_COMMIT_BRANCH =~ /^release(\/.*)?$/
+    - if: $CI_COMMIT_BRANCH == "main"
+    - when: never
+
+# ===========================================
+# 2) DOCKER BUILD & PUSH to DEV REGISTRY
+# ===========================================
+dockerbuild:
+  stage: dockerbuild
+  image: quay.io/podman/stable:latest
+  needs:
+    - job: build
+      artifacts: true
+  variables:
+    IMAGE_REGISTRY: $DEV_IMAGE_REGISTRY
+    IMAGE_REPOSITORY: "${IMAGE_REGISTRY}${APP_NAME}"
+    IMAGE_TAG: "${VERSION}"
+    FULL_IMAGE: "${IMAGE_REPOSITORY}:${IMAGE_TAG}"
+  before_script:
+    - echo "${DEV_REGISTRY_PASSWORD}" | podman login -u "${DEV_REGISTRY_USERNAME}" --password-stdin ${DEV_IMAGE_REGISTRY%/*} --tls-verify=$PODMAN_TLS_VERIFY || true
+  script:
+    - podman build -f Dockerfile -t "$FULL_IMAGE" .
+    - podman push "$FULL_IMAGE" --tls-verify=$PODMAN_TLS_VERIFY
+    - echo "IMAGE_REGISTRY=${IMAGE_REGISTRY}" >> docker.env
+    - echo "IMAGE_REPOSITORY=${IMAGE_REPOSITORY}" >> docker.env
+    - echo "IMAGE_TAG=${IMAGE_TAG}" >> docker.env
+    - echo "FULL_IMAGE=${FULL_IMAGE}" >> docker.env
+  artifacts:
+    reports:
+      dotenv: docker.env
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+    - when: never
+
+# ===========================================
+# 3) PROMOTE → SIT / UAT / PREPROD / PROD
+# ===========================================
+.promote_template: &promote_template
+  image: quay.io/podman/stable:latest
+  stage: promote
+  needs:
+    - job: dockerbuild
+      artifacts: true
+  before_script:
+    - set -eo pipefail
+    - source docker.env
+    - export SOURCE_IMAGE="${DEV_IMAGE_REGISTRY%/}/${APP_NAME}:${IMAGE_TAG}"
+  script:
+    - podman login -u "$TARGET_REGISTRY_USERNAME" -p "$TARGET_REGISTRY_PASSWORD" "$TARGET_REGISTRY_HOST"
+    - podman pull "$SOURCE_IMAGE"
+    - podman tag "$SOURCE_IMAGE" "${TARGET_REGISTRY_HOST%/}/${TARGET_REGISTRY_PATH}:${IMAGE_TAG}"
+    - podman push "${TARGET_REGISTRY_HOST%/}/${TARGET_REGISTRY_PATH}:${IMAGE_TAG}"
+  when: manual
+  rules:
+    - when: manual
+
+promote_to_sit:
+  <<: *promote_template
+  needs:
+    - job: dockerbuild
+      optional: true
+
+  variables:
+    TARGET_REGISTRY_HOST: "${SIT_IMAGE_REGISTRY%/}"
+    TARGET_REGISTRY_PATH: "ubi9/${APP_NAME}"
+    TARGET_REGISTRY_USERNAME: "$SIT_REGISTRY_USERNAME"
+    TARGET_REGISTRY_PASSWORD: "$SIT_REGISTRY_PASSWORD"
+
+promote_to_uat:
+  <<: *promote_template
+  needs:
+    - job: dockerbuild
+      optional: true
+      
+  variables:
+    TARGET_REGISTRY_HOST: "${UAT_IMAGE_REGISTRY%/}"
+    TARGET_REGISTRY_PATH: "fe/${APP_NAME}"
+    TARGET_REGISTRY_USERNAME: "$UAT_REGISTRY_USERNAME"
+    TARGET_REGISTRY_PASSWORD: "$UAT_REGISTRY_PASSWORD"
+
+promote_to_preprod:
+  <<: *promote_template
+  needs:
+    - job: dockerbuild
+      optional: true
+      
+  variables:
+    TARGET_REGISTRY_HOST: "${PREPROD_IMAGE_REGISTRY%/}"
+    TARGET_REGISTRY_PATH: "fe/${APP_NAME}"
+    TARGET_REGISTRY_USERNAME: "$PREPROD_REGISTRY_USERNAME"
+    TARGET_REGISTRY_PASSWORD: "$PREPROD_REGISTRY_PASSWORD"
+
+promote_to_prod:
+  <<: *promote_template
+  needs:
+    - job: dockerbuild
+      optional: true
+      
+  variables:
+    TARGET_REGISTRY_HOST: "${PROD_IMAGE_REGISTRY%/}"
+    TARGET_REGISTRY_PATH: "fe/${APP_NAME}"
+    TARGET_REGISTRY_USERNAME: "$PROD_REGISTRY_USERNAME"
+    TARGET_REGISTRY_PASSWORD: "$PROD_REGISTRY_PASSWORD"
+
+# ===========================================
+# 4) TRIGGER CD (RUN-TIME ENV BASE URL)
+# ===========================================
+.trigger_cd_job: &trigger_cd_job
+  stage: trigger_cd
+  variables:
+    DEPLOYMENT_BRANCH: "feature/dynamicnginx"
+  trigger:
+    project: epay/devops/deployment
+    branch: $DEPLOYMENT_BRANCH
+    strategy: depend
+    forward:
+      pipeline_variables: true
+      yaml_variables: true
+  when: manual
+  rules:
+    - when: manual
+
+trigger_deploy_sit:
+  <<: *trigger_cd_job
+  variables:
+    ENV: sit
+    SERVICE_NAME: $CI_PROJECT_NAME
+    VERSION: $IMAGE_TAG
+    APP_BASE_URL: $SIT_APP_BASE_URL
+
+trigger_deploy_uat:
+  <<: *trigger_cd_job
+  variables:
+    ENV: uat
+    SERVICE_NAME: $CI_PROJECT_NAME
+    VERSION: $IMAGE_TAG
+    APP_BASE_URL: $UAT_APP_BASE_URL
+
+trigger_deploy_preprod:
+  <<: *trigger_cd_job
+  variables:
+    ENV: pre-prod
+    SERVICE_NAME: $CI_PROJECT_NAME
+    VERSION: $IMAGE_TAG
+    APP_BASE_URL: $PREPROD_APP_BASE_URL
+
+trigger_deploy_prod:
+  <<: *trigger_cd_job
+  variables:
+    ENV: prod
+    SERVICE_NAME: $CI_PROJECT_NAME
+    VERSION: $IMAGE_TAG
+    APP_BASE_URL: $PROD_APP_BASE_URL
