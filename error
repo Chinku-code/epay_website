@@ -2,7 +2,6 @@
 include:
   - project: 'epay/devops/ci-templates'
     ref: feature/CIfrontend
-    #file: 'templates/fe/vite.react.yml'        # optional: if you want to reuse template
   - project: 'epay/devops/ci-templates'
     ref: feature/CIfrontend
     file: 'ci/release/version.yml'
@@ -18,6 +17,11 @@ include:
 
 validate_service:
   extends: .validate_service
+  stage: build
+  script:
+    - echo "Running validate service..."
+  rules:
+    - when: always
 
 stages:
   - build
@@ -31,7 +35,6 @@ variables:
   APP_NAME: "epay-website"
   VERSION: "${CI_COMMIT_SHORT_SHA}"
 
-  # Environment registries (as you provided)
   DEV_IMAGE_REGISTRY: "registry.dev.sbiepay.sbi:8443/ubi9/"
   INT_IMAGE_REGISTRY: "registry.dev.sbiepay.sbi:8443/library/"
   SIT_IMAGE_REGISTRY: "registry.dev.sbiepay.sbi:8443/library/"
@@ -154,7 +157,7 @@ promote_to_prod:
 .trigger_cd_job: &trigger_cd_job
   stage: trigger_cd
   variables:
-    DEPLOYMENT_BRANCH: "feature/dynamicnginx"   # your deployment repo branch
+    DEPLOYMENT_BRANCH: "feature/dynamicnginx"
   trigger:
     project: epay/devops/deployment
     branch: $DEPLOYMENT_BRANCH
