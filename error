@@ -1,15 +1,15 @@
+default:
+  image: registry.dev.sbiepay.sbi:8443/library/rhelgit:latest
+
 stages:
   - build
   - dockerbuild
   - promote
   - trigger_cd
 
-default:
-  image: registry.dev.sbiepay.sbi:8443/library/rhelgit:latest
-
-# ===========================================
-# 1) BUILD FRONTEND
-# ===========================================
+###############################################
+# BUILD FRONTEND
+###############################################
 build:
   stage: build
   image: node:18-alpine
@@ -24,9 +24,9 @@ build:
     - if: $CI_COMMIT_BRANCH =~ /^(develop|release.*|main)$/
     - when: never
 
-# ===========================================
-# 2) DOCKER BUILD & PUSH TO DEV
-# ===========================================
+###############################################
+# DOCKER BUILD
+###############################################
 dockerbuild:
   stage: dockerbuild
   image: quay.io/podman/stable:latest
@@ -44,9 +44,9 @@ dockerbuild:
     - if: $CI_COMMIT_BRANCH == "develop"
     - when: never
 
-# ===========================================
-# 3) PROMOTION TEMPLATE
-# ===========================================
+###############################################
+# PROMOTION TEMPLATE
+###############################################
 .promote_template: &promote_template
   stage: promote
   image: quay.io/podman/stable:latest
@@ -85,18 +85,15 @@ promote_to_prod:
     TARGET_REGISTRY_HOST: $PROD_IMAGE_REGISTRY
     TARGET_REGISTRY_PATH: "fe/$APP_NAME"
 
-# ===========================================
-# 4) TRIGGER CD
-# ===========================================
+###############################################
+# TRIGGER CD
+###############################################
 .trigger_cd_job: &trigger_cd_job
   stage: trigger_cd
   trigger:
     project: "epay/devops/deployment"
     branch: "feature/dynamicnginx"
     strategy: depend
-    forward:
-      pipeline_variables: true
-      yaml_variables: true
   when: manual
   rules:
     - when: manual
