@@ -1,15 +1,57 @@
-WARNING: Using insecure TLS client config. Setting this option is not supported!
-Logged into "https://api.dev.sbiepay.sbi:6443" as "system:serviceaccount:dev-sbiepay:cicd-sa" using the token provided.
-You have access to 195 projects, the list has been suppressed. You can list all projects with 'oc projects'
-Using project "default".
-Welcome! See 'oc help' to get started.
-Successfully switched to namespace dev-frontend
-$ set -eo pipefail # collapsed multi-line command
-Deploying "websitefe" to dev-frontend...
-Chart path: /tmp/builds/epay/devops/deployment/dev/charts/epay_website
-Executing: helm upgrade --install "websitefe" /tmp/builds/epay/devops/deployment/dev/charts/epay_website   --namespace dev-frontend   --history-max 10   --timeout 15m
-Error: UPGRADE FAILED: template: epay-website/templates/service.yaml:4:11: executing "epay-website/templates/service.yaml" at <include "Epay-Website.fullname" .>: error calling include: template: no template "Epay-Website.fullname" associated with template "gotpl"
-Error: Helm deployment failed
-Last 5 revisions:
-Error: release name is invalid: "websitefe"
-Cleaning up project directory and file based variables
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "Epay_Website.fullname" . }}
+  labels:
+    {{- include "Epay_Website.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "Epay_Website.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "Epay_Website.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "Epay_Website.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ tpl .Values.image.repository $ }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- with .Values.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
