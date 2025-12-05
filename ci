@@ -1,1 +1,110 @@
-This GitLab CI configuration is invalid: jobs:promote_to_sit:script config should be a string or a nested array of strings up to 10 levels deep.
+#############################################
+# STAGES
+#############################################
+stages:
+  - promote
+  - trigger_cd
+
+#############################################
+# DEFAULT IMAGE
+#############################################
+default:
+  image: registry.dev.sbiepay.sbi:8443/library/rhelgit:latest
+
+#############################################
+# PROMOTE TEMPLATE (BASE JOB)
+#############################################
+.promote_template:
+  stage: promote
+  image: quay.io/podman/stable:latest
+  script:
+    - echo "Loading docker.env…"
+    - test -f docker.env && source docker.env
+    - export IMAGE_TAG="${IMAGE_TAG:-$CI_COMMIT_SHORT_SHA}"
+    - export SOURCE_IMAGE="${DEV_IMAGE_REGISTRY}${APP_NAME}:${IMAGE_TAG}"
+    - echo "Promoting: $SOURCE_IMAGE -> $TARGET_REGISTRY_HOST/$TARGET_REGISTRY_PATH:$IMAGE_TAG"
+    - podman login -u "$TARGET_REGISTRY_USERNAME" -p "$TARGET_REGISTRY_PASSWORD" "$TARGET_REGISTRY_HOST"
+    - podman pull "$SOURCE_IMAGE"
+    - podman tag "$SOURCE_IMAGE" "$TARGET_REGISTRY_HOST/$TARGET_REGISTRY_PATH:$IMAGE_TAG"
+    - podman push "$TARGET_REGISTRY_HOST/$TARGET_REGISTRY_PATH:$IMAGE_TAG"
+  when: manual
+  rules:
+    - when: manual
+
+#############################################
+# PROMOTE JOBS
+#############################################
+promote_to_sit:
+  extends: .promote_template
+  needs: ["dockerbuild-sit"]
+  variables:
+    TARGET_REGISTRY_HOST: "$SIT_IMAGE_REGISTRY"
+    TARGET_REGISTRY_PATH: "ubi9/$APP_NAME"
+
+promote_to_uat:
+  extends: .promote_template
+  needs: ["dockerbuild-uat"]
+  variables:
+    TARGET_REGISTRY_HOST: "$UAT_IMAGE_REGISTRY"
+    TARGET_REGISTRY_PATH: "fe/$APP_NAME"
+
+promote_to_preprod:
+  extends: .promote_template
+  needs: ["dockerbuild-pre-prod"]
+  variables:
+    TARGET_REGISTRY_HOST: "$PREPROD_IMAGE_REGISTRY"
+    TARGET_REGISTRY_PATH: "fe/$APP_NAME"
+
+promote_to_prod:
+  extends: .promote_template
+  needs: ["dockerbuild-prod-dc"]    # PROD IMAGE
+  variables:
+    TARGET_REGISTRY_HOST: "$PROD_IMAGE_REGISTRY"
+    TARGET_REGISTRY_PATH: "fe/$APP_NAME"
+
+#############################################
+# CD TRIGGER TEMPLATE
+#############################################
+.trigger_cd_base:
+  stage: trigger_cd
+  trigger:
+    project: epay/devops/deployment
+    branch: "feature/dynamicnginx"
+    strategy: depend
+    forward:
+      pipeline_variables: true
+      yaml_variables: true
+  when: manual
+  rules:
+    - when: manual
+
+#############################################
+# CD JOBS
+#############################################
+trigger_deploy_sit:
+  extends: .trigger_cd_base
+  variables:
+    ENV: sit
+    APP_BASE_URL: $SIT_APP_BASE_URL
+    SERVICE_NAME: $CI_PROJECT_NAME
+
+trigger_deploy_uat:
+  extends: .trigger_cd_base
+  variables:
+    ENV: uat
+    APP_BASE_URL: $UAT_APP_BASE_URL
+    SERVICE_NAME: $CI_PROJECT_NAME
+
+trigger_deploy_preprod:
+  extends: .trigger_cd_base
+  variables:
+    ENV: pre-prod
+    APP_BASE_URL: $PREPROD_APP_BASE_URL
+    SERVICE_NAME: $CI_PROJECT_NAME
+
+trigger_deploy_prod:
+  extends: .trigger_cd_base
+  variables:
+    ENV: prod
+    APP_BASE_URL: $PROD_APP_BASE_URL
+    SERVICE_NAME: $CI_PROJECT_NAME
