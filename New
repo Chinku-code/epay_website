@@ -1,3 +1,5 @@
+dynamic.yaml-----------------------
+
 default:
   image: registry.dev.sbiepay.sbi:8443/library/rhelgit:latest
 
@@ -111,3 +113,1142 @@ trigger_deploy_prod:
   <<: *trigger_cd_job
   variables:
     ENV: prod
+
+--------------------------------------------
+vite.react.yml
+
+include:
+  - project: 'epay/devops/ci-templates'
+    ref: main
+    file: 'ci/build/vite.react.yml'
+  - project: 'epay/devops/ci-templates'
+    ref: main
+    file: 'ci/sast/sast.yml'
+  - project: 'epay/devops/ci-templates'
+    ref: main
+    file: 'ci/sast/fortify.sast.yml'
+  - project: 'epay/devops/ci-templates'
+    ref: main
+    file: 'ci/release/version.yml'
+  - project: 'epay/devops/ci-templates'
+    ref: main
+    file: 'ci/release/release.yml'
+  - project: 'epay/devops/ci-templates'
+    ref: main
+    file: 'ci/build/podman.container.yml'
+  - project: 'epay/devops/ci-templates'
+    ref: main
+    file: 'ci/deploy/deployment.yml'
+
+stages:
+- build
+- test
+- sast
+- hp-fortify
+- release
+- dockerbuild
+- deploy
+
+variables:
+  CI_TEMPLATE_REGISTRY_HOST: "registry.dev.sbiepay.sbi:8443"
+  CI_TEMPLATE_REGISTRY_HOST_PREPROD: "epaynonprod-registry-quay-quay-enterprise.apps.preprod.epay.sbi"
+  CI_TEMPLATE_REGISTRY_HOST_PROD: "registry.prod.epay.sbi:8443"
+  CI_TEMPLATE_REGISTRY_HOST_PRODDR: "epayproddr-registry-quay-quay-enterprise.apps.dr.prod.epay.sbi"
+  CI_TEMPLATE_REGISTRY_HOST_PRODDC: "proddc-registry-route-quay-enterprise.apps.dc.prod.epay.sbi"
+  GIT_STRATEGY: clone
+  CI_USERNAME: "gitlab-ci-token"
+  RELEASE_NAME: null
+  CHART_NAME: null
+  IMAGE_NAME: "ubi9/$CHART_NAME"
+
+.rules:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME =~ /^(main)|(develop)|(release)(\/.+)*$/'
+    - if: '$CI_COMMIT_BRANCH =~ /^(main)|(develop)|(release)(\/.+)*$/'
+    - when: never
+
+# Development environment builds - used by dev, sit, uat
+build-dev:
+  variables:
+    ENV: dev
+  extends: 
+    - .build
+    - .rules
+
+# Higher environment builds  
+build-sit:
+  variables:
+    ENV: sit
+  extends: 
+    - .build
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /^(release)(\/.+)*$/
+      allow_failure: true
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME =~ /^(release)(\/.+)*$/
+      when: manual
+      allow_failure: true
+    - when: never
+
+# Higher environment builds  
+build-uat:
+  variables:
+    ENV: uat
+  extends: 
+    - .build
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /^(release)(\/.+)*$/
+      allow_failure: true
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME =~ /^(release)(\/.+)*$/
+      when: manual
+      allow_failure: true
+    - when: never
+
+# Higher environment builds  
+build-pre-prod:
+  variables:
+    ENV: pre-prod
+  extends: 
+    - .build
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /^(release)(\/.+)*$/
+      allow_failure: true
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME =~ /^(release)(\/.+)*$/
+      when: manual
+      allow_failure: true
+    - when: never
+
+build-perf:
+  variables:
+    ENV: perf
+  extends: 
+    - .build
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /^(release)(\/.+)*$/
+      when: manual
+      allow_failure: true
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME =~ /^(release)(\/.+)*$/
+      when: manual
+      allow_failure: true
+    - when: never
+
+build-prod:
+  variables:
+    ENV: prod
+  extends: 
+    - .build
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /^(main)$/
+      when: manual
+      allow_failure: true
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME =~ /^(main)$/
+      when: manual
+      allow_failure: true
+    - when: never
+
+sast:
+  extends:
+    - .sast
+    - .rules
+
+hp-fortify:
+  variables:
+    EXCLUDE_DIRS: "./**/dist/**/*"
+    INCLUDE_DIRS: "./**/*.tsx,./**/*.ts,./**/*.js"
+  extends:
+    - .HPFortify
+    - .rules
+
+tag:
+  extends:
+    - .tag
+
+# Docker build jobs for each environment
+dockerbuild-dev:
+  stage: dockerbuild
+  variables:
+    ENV: dev
+  extends:
+    - .dockerbuild
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME =~ /^(develop)$/'
+    - if: '$CI_COMMIT_BRANCH =~ /^(develop)$/'
+    - when: never
+
+dockerbuild-sit:
+  stage: dockerbuild
+  variables:
+    ENV: sit
+    IMAGE_NAME: "ubi9/sit/$CHART_NAME"
+  extends:
+    - .dockerbuild
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /^(release)(\/.+)*$/
+      when: manual
+      allow_failure: true
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME =~ /^(release)(\/.+)*$/
+      when: manual
+      allow_failure: true
+    - when: never
+
+dockerbuild-uat:
+  stage: dockerbuild
+  variables:
+    ENV: uat
+    IMAGE_NAME: "ubi9/uat/$CHART_NAME"
+  extends:
+    - .dockerbuild
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /^(release)(\/.+)*$/
+      when: manual
+      allow_failure: true
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME =~ /^(release)(\/.+)*$/
+      when: manual
+      allow_failure: true
+    - when: never
+
+dockerbuild-pre-prod:
+  stage: dockerbuild
+  variables:
+    ENV: pre-prod
+    CI_TEMPLATE_REGISTRY_HOST: $CI_TEMPLATE_REGISTRY_HOST_PREPROD
+    IMAGE_REGISTRY_USERNAME: $PREPROD_REGISTRY_USERNAME
+    IMAGE_REGISTRY_PASS: $PREPROD_REGISTRY_PASSWORD
+    IMAGE_NAME: "microservices/$CHART_NAME"
+  extends:
+    - .dockerbuild
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /^(release)(\/.+)*$/
+      when: manual
+      allow_failure: true
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME =~ /^(release)(\/.+)*$/
+      when: manual
+      allow_failure: true
+    - when: never
+
+dockerbuild-pre-prod-dc:
+  stage: dockerbuild
+  variables:
+    ENV: pre-prod
+    CI_TEMPLATE_REGISTRY_HOST: $CI_TEMPLATE_REGISTRY_HOST_PREPROD
+    IMAGE_REGISTRY_USERNAME: $PREPROD_REGISTRY_USERNAME
+    IMAGE_REGISTRY_PASS: $PREPROD_REGISTRY_PASSWORD
+    IMAGE_NAME: "microservices/$CHART_NAME"
+  extends:
+    - .dockerbuild
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /^(release)(\/.+)*$/
+      when: manual
+      allow_failure: true
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME =~ /^(release)(\/.+)*$/
+      when: manual
+      allow_failure: true
+    - when: never
+
+dockerbuild-prod-dr:
+  stage: dockerbuild
+  variables:
+    ENV: prod
+    CI_TEMPLATE_REGISTRY_HOST: $CI_TEMPLATE_REGISTRY_HOST_PRODDR
+    IMAGE_REGISTRY_USERNAME: $PROD_REGISTRY_USERNAME
+    IMAGE_REGISTRY_PASS: $PROD_REGISTRY_PASSWORD
+    IMAGE_NAME: "fe/$CHART_NAME"
+  extends:
+    - .dockerbuild
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /^(main)$/
+      when: manual
+      allow_failure: true
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME =~ /^(main)$/
+      when: manual
+      allow_failure: true
+    - when: never
+
+dockerbuild-prod-dc:
+  stage: dockerbuild
+  variables:
+    ENV: prod
+    CI_TEMPLATE_REGISTRY_HOST: $CI_TEMPLATE_REGISTRY_HOST_PRODDC
+    IMAGE_REGISTRY_USERNAME: $PROD_REGISTRY_USERNAME
+    IMAGE_REGISTRY_PASS: $PROD_REGISTRY_PASSWORD
+    IMAGE_NAME: "fe/$CHART_NAME"
+  extends:
+    - .dockerbuild
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /^(main)$/
+      when: manual
+      allow_failure: true
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME =~ /^(main)$/
+      when: manual
+      allow_failure: true
+    - when: never
+
+# Deploy jobs with proper dependencies
+deploy-dev:
+  variables:
+    ENV: dev
+    SERVICE_NAME: $CI_PROJECT_NAME
+  extends:
+    - .trigger_cd
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /^(develop)$/
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME =~ /^(develop)$/
+      when: manual
+      allow_failure: true
+    - when: never
+
+deploy-sit:
+  variables:
+    ENV: sit
+    SERVICE_NAME: $CI_PROJECT_NAME
+    DEPLOYMENT_BRANCH: "feature/dynamicnginx"
+  extends:
+    - .trigger_cd
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /^(release)(\/.+)*$/
+      when: manual
+      allow_failure: true
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME =~ /^(release)(\/.+)*$/
+      when: manual
+      allow_failure: true
+    - when: never
+
+deploy-uat:
+  variables:
+    ENV: uat
+    SERVICE_NAME: $CI_PROJECT_NAME
+    DEPLOYMENT_BRANCH: "feature/dynamicnginx"
+  extends:
+    - .trigger_cd
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /^(release)(\/.+)*$/
+      when: manual
+      allow_failure: true
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME =~ /^(release)(\/.+)*$/
+      when: manual
+      allow_failure: true
+    - when: never
+
+deploy-pre-prod:
+  variables:
+    ENV: pre-prod
+    SERVICE_NAME: $CI_PROJECT_NAME
+    DEPLOYMENT_BRANCH: "feature/dynamicnginx"
+  extends:
+    - .trigger_cd
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /^(release)(\/.+)*$/
+      when: manual
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME =~ /^(release)(\/.+)*$/
+      when: manual
+      allow_failure: false
+    - when: never
+
+deploy-perf:
+  variables:
+    ENV: perf
+    SERVICE_NAME: $CI_PROJECT_NAME
+    DEPLOYMENT_BRANCH: "feature/dynamicnginx"
+  extends:
+    - .trigger_cd
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /^(release)(\/.+)*$/
+      when: manual
+      allow_failure: false
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME =~ /^(release)(\/.+)*$/
+      when: manual
+      allow_failure: false
+    - when: never
+
+deploy-pre-prod-dc:
+  variables:
+    ENV: pre-prod-dc
+    SERVICE_NAME: $CI_PROJECT_NAME
+  extends:
+    - .trigger_cd
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /^(release)(\/.+)*$/
+      when: manual
+      allow_failure: true
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME =~ /^(release)(\/.+)*$/
+      when: manual
+      allow_failure: true
+    - when: never
+
+deploy-prod-dr:
+  variables:
+    ENV: prod-dr
+    SERVICE_NAME: $CI_PROJECT_NAME
+    VERSION: $VERSION
+  extends:
+    - .trigger_cd
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /^(main)$/
+      when: manual
+      allow_failure: true
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME =~ /^(main)$/
+      when: manual
+      allow_failure: true
+    - when: never
+
+deploy-prod-dc:
+  variables:
+    ENV: prod-dc
+    SERVICE_NAME: $CI_PROJECT_NAME
+    VERSION: $VERSION
+  extends:
+    - .trigger_cd
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /^(main)$/
+      when: manual
+      allow_failure: false
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME =~ /^(main)$/
+      when: manual
+      allow_failure: true
+    - when: never
+________________________________________
+
+version.yml
+
+version:
+  stage: .pre
+  image: $CI_TEMPLATE_REGISTRY_HOST/library/rhelgit:latest
+  variables:
+    VERSION_TYPE: PATCH
+  before_script:
+    - git config --global http.sslVerify false
+    - git config --global --add safe.directory '*'
+  script:
+    - |
+      handle_error() {
+        local exit_code=$?
+        local script_line_number=$1
+        local error_message=$2
+        local function_name=$3
+        
+        echo "ERROR: $error_message"
+        echo "ERROR: $error_message" >> version_error.log
+        echo "ERROR_DETAILS: Function=$function_name, Script_Line=$script_line_number, Exit_Code=$exit_code" >> version_error.log
+        
+        echo "ERROR_OCCURRED=true" >> version.env
+        echo "ERROR_MESSAGE=$error_message" >> version.env
+        echo "ERROR_FUNCTION=$function_name" >> version.env
+        echo "ERROR_SCRIPT_LINE=$script_line_number" >> version.env
+        echo "ERROR_EXIT_CODE=$exit_code" >> version.env
+        
+        exit $exit_code
+      }
+      
+      set -e
+      
+      echo "Starting version generation for branch: $CI_COMMIT_BRANCH"
+      
+      # Fetch git tags
+      git fetch --tags || handle_error ${LINENO} "Failed to fetch git tags" "git_fetch"
+      
+      # Version logic for different branch types
+      if [[ "$CI_COMMIT_BRANCH" =~ ^(main)$ ]]; then
+        # Standard semantic versioning for main/develop
+        echo "Processing main/develop branch versioning..."
+        
+        LAST_TAG=$(git tag --sort=-v:refname | head -n 1 || echo "")
+        echo "Last Tag: $LAST_TAG"
+        
+        if [[ -z "$LAST_TAG" ]]; then
+          echo "WARNING: No tags found, using default version v0.0.0"
+          LAST_TAG="v0.0.0"
+        fi
+        
+        # Validate tag format
+        if ! [[ "$LAST_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "WARNING: Invalid tag format '$LAST_TAG', using default version v0.0.0"
+          LAST_TAG="v0.0.0"
+        fi
+        
+        VERSION=$LAST_TAG
+        LAST_TAG="${LAST_TAG//v/}"
+        
+        # Extract version components
+        MAJOR=$(echo $LAST_TAG | cut -d '.' -f 1)
+        MINOR=$(echo $LAST_TAG | cut -d '.' -f 2)
+        PATCH=$(echo $LAST_TAG | cut -d '.' -f 3)
+        
+        # Validate version components
+        if ! [[ "$MAJOR" =~ ^[0-9]+$ ]] || ! [[ "$MINOR" =~ ^[0-9]+$ ]] || ! [[ "$PATCH" =~ ^[0-9]+$ ]]; then
+          handle_error ${LINENO} "Invalid version components: MAJOR=$MAJOR, MINOR=$MINOR, PATCH=$PATCH" "version_validation"
+        fi
+        
+        echo "Version components - MAJOR: $MAJOR, MINOR: $MINOR, PATCH: $PATCH"
+        
+        # Increment version based on VERSION_TYPE
+        case "$VERSION_TYPE" in
+          "MAJOR")
+            VERSION="v$((MAJOR+1)).0.0"
+            echo "Incrementing MAJOR version"
+            ;;
+          "MINOR")
+            VERSION="v${MAJOR}.$((MINOR+1)).0"
+            echo "Incrementing MINOR version"
+            ;;
+          "PATCH")
+            VERSION="v${MAJOR}.${MINOR}.$((PATCH+1))"
+            echo "Incrementing PATCH version"
+            ;;
+          *)
+            echo "WARNING: Unknown VERSION_TYPE '$VERSION_TYPE', defaulting to PATCH increment"
+            VERSION="v${MAJOR}.${MINOR}.$((PATCH+1))"
+            ;;
+        esac
+        
+        echo "Calculated version: $VERSION"
+        
+      elif [[ "$CI_COMMIT_BRANCH" =~ ^release/v([0-9]+\.[0-9]+)\.([0-9]+)$ ]]; then
+        # Release branch versioning - extract version from branch name
+        echo "Processing release branch versioning..."
+        
+        # Extract major.minor from branch name (e.g., 0.1 from release/v0.1.0)
+        BRANCH_MAJOR_MINOR="${BASH_REMATCH[1]}"  # 0.1
+        BRANCH_PATCH="${BASH_REMATCH[2]}"        # 0
+        
+        # Validate extracted version components
+        if [[ -z "$BRANCH_MAJOR_MINOR" ]] || [[ -z "$BRANCH_PATCH" ]]; then
+          handle_error ${LINENO} "Failed to extract version from branch name: $CI_COMMIT_BRANCH" "branch_version_extraction"
+        fi
+        
+        # Validate major.minor format
+        if ! [[ "$BRANCH_MAJOR_MINOR" =~ ^[0-9]+\.[0-9]+$ ]]; then
+          handle_error ${LINENO} "Invalid major.minor format: $BRANCH_MAJOR_MINOR" "branch_version_validation"
+        fi
+        
+        # Validate patch format
+        if ! [[ "$BRANCH_PATCH" =~ ^[0-9]+$ ]]; then
+          handle_error ${LINENO} "Invalid patch format: $BRANCH_PATCH" "branch_patch_validation"
+        fi
+        
+        echo "Branch Major.Minor: $BRANCH_MAJOR_MINOR"
+        echo "Branch Patch: $BRANCH_PATCH"
+        
+        # Find the latest patch version for this major.minor series
+        echo "Searching for existing tags in series v${BRANCH_MAJOR_MINOR}.*"
+        
+        GREP_PATTERN="^v${BRANCH_MAJOR_MINOR}\."
+        LATEST_PATCH_TAG=$(git tag --sort=-v:refname | grep "$GREP_PATTERN" | head -n 1 || true)
+        
+        if [[ -n "$LATEST_PATCH_TAG" ]]; then
+          # Extract patch number from latest tag
+          echo "Latest patch tag found: $LATEST_PATCH_TAG"
+          
+          # Validate tag format
+          if ! [[ "$LATEST_PATCH_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            handle_error ${LINENO} "Invalid tag format found: $LATEST_PATCH_TAG" "tag_format_validation"
+          fi
+          
+          LATEST_PATCH=$(echo $LATEST_PATCH_TAG | cut -d '.' -f 3)
+          
+          # Validate extracted patch number
+          if ! [[ "$LATEST_PATCH" =~ ^[0-9]+$ ]]; then
+            handle_error ${LINENO} "Invalid patch number extracted: $LATEST_PATCH from tag: $LATEST_PATCH_TAG" "patch_extraction_validation"
+          fi
+          
+          NEW_PATCH=$((LATEST_PATCH + 1))
+          VERSION="v${BRANCH_MAJOR_MINOR}.${NEW_PATCH}"
+          
+          echo "Latest patch: $LATEST_PATCH"
+          echo "Incrementing patch to: $NEW_PATCH"
+        else
+          # No existing tags for this series, start with patch 1
+          echo "No existing tags for series v${BRANCH_MAJOR_MINOR}, starting with patch 1"
+          VERSION="v${BRANCH_MAJOR_MINOR}.1"
+        fi
+        
+        # Validate final version format
+        if ! [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          handle_error ${LINENO} "Invalid final version generated: $VERSION" "final_version_validation"
+        fi
+        
+        echo "Release branch version: $VERSION"
+        
+      else
+        # Feature branch versioning with timestamp
+        echo "Processing feature branch versioning..."
+        
+        if [[ -z "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME" && -z "$CI_COMMIT_REF_NAME" ]]; then
+          handle_error ${LINENO} "Both CI_MERGE_REQUEST_TARGET_BRANCH_NAME and CI_COMMIT_REF_NAME are empty" "branch_validation"
+        fi
+        
+        BRANCH_NAME="${CI_MERGE_REQUEST_TARGET_BRANCH_NAME:-$CI_COMMIT_REF_NAME}"
+        
+        # Validate branch name
+        if [[ -z "$BRANCH_NAME" ]]; then
+          handle_error ${LINENO} "Branch name is empty after extraction" "branch_name_validation"
+        fi
+        
+        TIMESTAMP=$(date +"%Y%m%d%H%M%S")
+        
+        if [[ -z "$TIMESTAMP" ]]; then
+          handle_error ${LINENO} "Failed to generate timestamp" "timestamp_generation"
+        fi
+        
+        # Validate timestamp format
+        if ! [[ "$TIMESTAMP" =~ ^[0-9]{14}$ ]]; then
+          handle_error ${LINENO} "Invalid timestamp format: $TIMESTAMP" "timestamp_format_validation"
+        fi
+        
+        VERSION="v-${BRANCH_NAME}-${TIMESTAMP}"
+        VERSION="${VERSION//\//-}"
+        
+        # Validate final feature branch version
+        if [[ -z "$VERSION" ]]; then
+          handle_error ${LINENO} "Generated feature branch version is empty" "feature_version_validation"
+        fi
+        
+        echo "Feature branch version: $VERSION"
+      fi
+      
+      # Validate final version
+      if [[ -z "$VERSION" ]]; then
+        handle_error ${LINENO} "VERSION is empty after processing" "final_validation"
+      fi
+      
+      # Output version information
+      echo "VERSION=$VERSION" >> version.env
+      echo "VERSION_GENERATED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> version.env
+      echo "VERSION_TYPE_USED=$VERSION_TYPE" >> version.env
+      echo "BRANCH_USED=$CI_COMMIT_BRANCH" >> version.env
+      echo "ERROR_OCCURRED=false" >> version.env
+      
+      echo "SUCCESS: New version generated: $VERSION"
+      echo "Version information saved to version.env"
+      
+      echo "=== Version Generation Summary ==="
+      echo "Generated Version: $VERSION"
+      echo "Version Type: $VERSION_TYPE"
+      echo "Branch: $CI_COMMIT_BRANCH"
+      echo "Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+      echo "=================================="
+  artifacts:
+    reports:
+      dotenv: version.env
+    paths:
+      - version_error.log
+    expire_in: 1 week
+  rules:
+   - when: on_success
+  allow_failure: false
+
+----------------------------------------
+
+service.yaml---
+
+variables:
+  SERVICES_CONFIG: |
+    - namespace: transaction
+      description: "Transaction and Payment services"
+      services:
+        - name: epay_transaction_service
+          release: txn
+          chart: epay_transaction_service
+          health_check: /actuator/health
+          environments:
+            - dev
+            - sit
+            - uat
+            - int
+            - pre-prod
+            - perf
+            - pre-prod-dc
+            - prod-dr
+            - prod-dc
+        
+        - name: epay_payment_service
+          release: payment
+          chart: epay_payment_service
+          health_check: /actuator/health
+          environments:
+            - dev
+            - sit
+            - uat
+            - int
+            - pre-prod
+            - perf
+            - pre-prod-dc
+            - prod-dr
+            - prod-dc
+
+    - namespace: admin
+      description: "Admin services"
+      services:
+        - name: epay_admin_service
+          release: admin
+          chart: epay_admin_service
+          health_check: /actuator/health
+          environments:
+            - dev
+            - sit
+            - uat
+            - int
+            - pre-prod
+            - perf
+            - pre-prod-dc
+            - prod-dr
+            - prod-dc
+    
+
+    - namespace: kms
+      description: "Key Management Services"
+      services:
+        - name: epay_key_managment
+          release: kms
+          chart: epay_key_managment
+          health_check: /actuator/health
+          environments:
+            - dev
+            - sit
+            - uat
+            - int
+            - pre-prod
+            - perf
+            - pre-prod-dc
+            - prod-dr
+            - prod-dc
+
+    - namespace: merchant
+      description: "Merchant services"
+      services:
+        - name: epay_merchant_service
+          release: merchant
+          chart: epay_merchant_service
+          health_check: /actuator/health
+          environments:
+            - dev
+            - sit
+            - uat
+            - int
+            - pre-prod
+            - perf
+            - pre-prod-dc
+            - prod-dr
+            - prod-dc
+
+        - name: epay_reports_service
+          release: report
+          chart: epay_reports_service
+          health_check: /actuator/health
+          environments:
+            - dev
+            - sit
+            - uat
+            - int
+            - pre-prod
+            - perf
+            - pre-prod-dc
+            - prod-dr
+            - prod-dc
+
+    - namespace: rns
+      description: "Epay_Operations_Service"
+      services:
+        - name: epay_operations_service
+          release: ops
+          chart: epay_operations_service
+          health_check: /actuator/health
+          environments:
+            - dev
+            - sit
+            - uat
+            - int
+            - pre-prod
+            - perf
+            - pre-prod-dc
+            - prod-dr
+            - prod-dc
+
+        - name: epay_refund_service
+          release: refund
+          chart: epay_refund_service
+          health_check: /actuator/health
+          environments:
+            - dev
+            - sit
+            - uat
+            - int
+            - pre-prod
+            - perf
+            - pre-prod-dc
+            - prod-dr
+            - prod-dc
+
+        - name: epay_sftp_service
+          release: sftp
+          chart: epay_sftp_service
+          health_check: /actuator/health
+          environments:
+            - dev
+            - sit
+            - uat
+            - int
+            - pre-prod
+            - perf
+            - pre-prod-dc
+            - prod-dr
+            - prod-dc
+
+    - namespace: notification
+      description: "Notification services"
+      services:
+        - name: epay_notification_service
+          release: notify
+          chart: epay_notification_service
+          health_check: /actuator/health
+          environments:
+            - dev
+            - sit
+            - uat
+            - int
+            - pre-prod
+            - perf
+            - pre-prod-dc
+            - prod-dr
+            - prod-dc
+
+    - namespace: frontend
+      description: "Frontend services"
+      services:
+        - name: epay_merchant_fe
+          release: merchantfe
+          chart: epay_merchant_fe
+          health_check: /health
+          environments:
+            - dev
+            - sit
+            - uat
+            - int
+            - pre-prod
+            - perf
+            - pre-prod-dc
+            - prod-dr
+            - prod-dc
+        
+        - name: epay_transaction_fe
+          release: transactionfe
+          chart: epay_transaction_fe
+          health_check: /health
+          environments:
+            - dev
+            - sit
+            - uat
+            - int
+            - pre-prod
+            - perf
+            - pre-prod-dc
+            - prod-dr
+            - prod-dc
+
+        - name: epay_maintenance_fe
+          release: maintenancefe
+          chart: epay_maintenance_fe
+          health_check: /health
+          environments:
+            - dev
+            - sit
+            - uat
+            - int
+            - pre-prod
+            - perf
+            - pre-prod-dc
+            - prod-dr
+            - prod-dc
+
+        - name: epay_website
+          release: websitefe
+          chart: epay_website
+          health_check: /health
+          environments:
+            - dev
+            - sit
+            - uat
+            - int
+            - pre-prod
+            - perf
+            - pre-prod-dc
+            - prod-dr
+            - prod-dc
+
+        - name: epay_merchant_integration_doc
+          release: merchant-int
+          chart: epay_merchant_integration_doc
+          health_check: /health
+          environments:
+            - dev
+            - sit
+            - uat
+            - int
+            - pre-prod
+            - perf
+            - pre-prod-dc
+            - prod-dr
+            - prod-dc
+
+    - namespace: simulators
+      description: "Simulator services"
+      services:
+        - name: java-utility-api-simulator
+          release: javasimulator
+          chart: java-utility-api-simulator
+          health_check: /actuator/health
+          environments:
+            - dev
+            - sit
+            - uat
+            - int
+            - pre-prod
+            - perf
+            - pre-prod-dc
+            - prod-dr
+            - prod-dc
+        
+        - name: epay_order_hash
+          release: orderhash
+          chart: epay_order_hash
+          health_check: /actuator/health
+          environments:
+            - dev
+            - sit
+            - uat
+            - int
+            - pre-prod
+            - perf
+            - pre-prod-dc
+            - prod-dr
+            - prod-dc
+
+        - name: epay_stubs_service
+          release: stubsservice
+          chart: epay_stubs_service
+          health_check: /actuator/health
+          environments:
+            - dev
+            - perf
+            - int
+            
+        - name: epay_perf_simulator
+          release: perf
+          chart: epay_perf_simulator
+          health_check: /health
+          environments:
+            - dev
+            - perf
+
+        - name: epay_merchant_simulator
+          release: demo
+          chart: epay_merchant_simulator
+          health_check: /health
+          environments:
+            - dev
+            - sit
+            - uat
+            - int
+            - pre-prod
+            - perf
+            - pre-prod-dc
+            - prod-dr
+            - prod-dc
+
+        - name: merchant_api_simulator_nodejs
+          release: nodejssimulator
+          chart: merchant_api_simulator_nodejs
+          health_check: /actuator/health
+          environments:
+            - dev
+            - sit
+            - uat
+            - int
+            - pre-prod
+            - perf
+            - pre-prod-dc
+
+        - name: merchant_api_simulator_python
+          release: pythonsimulator
+          chart: merchant_api_simulator_python
+          health_check: /actuator/health
+          environments:
+            - dev
+            - sit
+            - uat
+            - int
+            - pre-prod
+            - perf
+            - pre-prod-dc
+            - prod-dr
+            - prod-dc    
+      
+      - name: merchant_api_simulator_dotnet
+          release: dotnetsimulator
+          chart: merchant_api_simulator_dotnet
+          health_check: /actuator/health
+          environments:
+            - dev
+            - sit
+            - uat
+            - int
+            - pre-prod
+            - perf
+            - pre-prod-dc
+            - prod-dr
+            - prod-dc
+      
+      - name: merchant_api_simulator_php
+          release: phpsimulator
+          chart: merchant_api_simulator_php
+          health_check: /actuator/health
+          environments:
+            - dev
+            - sit
+            - uat
+            - int
+            - pre-prod
+            - perf
+            - pre-prod-dc
+            - prod-dr
+            - prod-dc
+
+    - namespace: offline-jobs
+      description: "Offline job services"
+      services:
+        - name: epay_gateway_pooling
+          release: pooling
+          chart: epay_gateway_pooling
+          health_check: /actuator/health
+          environments:
+            - dev
+            - sit
+            - uat
+            - int
+            - pre-prod
+            - perf
+            - pre-prod-dc
+            - prod-dr
+            - prod-dc
+
+    - namespace: epay-common
+      description: "Epay Common (Gemfire, Kafka, Istio, SSC, NP)"
+      services:
+        - name: epay_common
+          release: epay-common
+          chart: epay_common
+          health_check: /actuator/health
+          environments:
+            - dev
+            - sit
+            - uat
+            - int
+            - pre-prod
+            - perf
+            - pre-prod-dc
+            - prod-dr
+            - prod-dc
+
+        - name: epay_secrets
+          release: epaysecrets
+          chart: epay_secrets
+          health_check: /health
+          environments:
+            - prod-dr
+            - prod-dc
+            - pre-prod
+            - pre-prod-dc
+
+        - name: epay_cluster_base
+          release: epay-cluster-base
+          chart: epay_cluster_base
+          health_check: /actuator/health
+          environments:
+            - pre-prod
+            - perf
+            - pre-prod-dc
+            - prod
+            - prod-dc       
+  
+
+    - namespace: testci
+      description: "testci services"
+      services:
+        - name: testci
+          release: testci
+          chart: testci
+          health_check: /actuator/health
+          environments:
+            - dev
+            - sit
+            - uat
+            - int
+            - pre-prod
+            - perf
+            - pre-prod-dc
+            - prod-dr
+            - prod-dc
+    
+    - namespace: communication
+      description: "Communication services"
+      services:
+        - name: epay_communication_service
+          release: comm
+          chart: epay_communication_service
+          health_check: /health
+          environments:
+            - dev
+            - sit
+            - uat
+            - int
+
+
+    - namespace: integration
+      description: "Integration services"
+      services:
+        - name: epay_integration_service
+          release: integration
+          chart: epay_integration_service
+          health_check: /actuator/health
+          environments:
+            - dev
+            - sit
+            - uat
+            - int
+            - pre-prod
+            - perf
+            - pre-prod-dc
+            - prod-dr
+            - prod-dc
+    
+    # - namespace: spark
+    #   description: "Epay_Operations_Service"
+    #   services:
+    #     - name: epay_operations_service
+    #       release: ops
+    #       chart: epay_operations_service
+    #       health_check: /actuator/health
+    #       environments:
+    #         - dev
+    #         #- sit
+    #         #- uat
+    #         - int
+    #         #- pre-prod
+    #         #- perf
+    #         #- pre-prod-dc
+    #         #- prod-dr
+    #         #- prod-dc
+
+    - namespace: istio-system
+      description: "Dummy helm chart for controlling global scale up/down"
+      services:
+        - name: scale-controller
+          release: scale-controller
+          chart: scale-controller
+          health_check: /actuator/health
+          environments:
+            - dev
+            - pre-prod
+            - pre-prod-dc
+            - prod-dr
+            - prod-dc
+
+
