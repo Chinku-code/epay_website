@@ -1,12 +1,33 @@
-include:
-  - project: 'epay/devops/ci-templates'
-    ref: main
-    file: 'ci/build/vite.react.yml'
-
-  - project: 'epay/devops/ci-templates'
-    ref: main
-    file: 'ci/release/version.yml'
-
-  - project: 'epay/devops/ci-templates'
-    ref: main
-    file: 'cd/helm/services.yml'
+.build:
+  stage: build
+  image: 
+    name:  registry.dev.sbiepay.sbi:8443/ubi9/reactjs_npm:20241113
+    pull_policy: always  
+  script:
+    - pwd
+    - mkdir $ENV
+    - ls -la
+    - npm config set proxy http://serverswg.sbi.co.in:80
+    - npm config set https-proxy http://serverswg.sbi.co.in:9090
+    - ls /app
+    - npm cache clean --force
+    - |
+      if [ -n "$VERSION" ]; then
+        echo "version ${VERSION}"
+        # npm version "${VERSION}" --no-git-tag-version
+      fi
+    # - npm install --legacy-peer-deps
+    - npm install
+    #- npm install --loglevel verbose
+    #- npm install rollup@latest
+    - npm run build:$ENV
+    - ls -lrth
+    - ls -lrth /dev
+    #- npm install --save-dev eslint-plugin-react eslint-plugin-react-hooks
+    #- npm run lint -- --debug
+    #- npm run lint 
+  artifacts:
+    paths:
+      - ./dist
+    when: on_success 
+    expire_in: 1 week
