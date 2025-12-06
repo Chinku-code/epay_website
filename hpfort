@@ -1,0 +1,80 @@
+Running with gitlab-runner 17.8.0 (e4f782b3)
+  on DC-Gitlab-Runner rMTQxLq3, system ID: s_948d0ccb739a
+Resolving secrets
+Preparing the "docker" executor
+00:06
+Using Docker executor with image registry.dev.sbiepay.sbi:8443/hpfortify/fortify_sca_23.1.0:v2-04072025 ...
+Using helper image:  registry.dev.sbiepay.sbi:8443/library/gitlab-runner-helper:latest  (overridden, default would be  registry.gitlab.com/gitlab-org/gitlab-runner/gitlab-runner-helper:x86_64-v17.8.0 )
+Pulling docker image registry.dev.sbiepay.sbi:8443/library/gitlab-runner-helper:latest ...
+Using docker image sha256:c95744588b6d7e170a6866854932de40eaf1b5ed229ed818cba6a87a1f885773 for registry.dev.sbiepay.sbi:8443/library/gitlab-runner-helper:latest with digest registry.dev.sbiepay.sbi:8443/library/gitlab-runner-helper@sha256:ebbf1c21e4272ae1f8c18b034d390809c836c2fc68c0f0f6d3a5aff9760aabf5 ...
+Using helper image:  registry.dev.sbiepay.sbi:8443/library/gitlab-runner-helper:latest  (overridden, default would be  registry.gitlab.com/gitlab-org/gitlab-runner/gitlab-runner-helper:x86_64-v17.8.0 )
+Using docker image sha256:c95744588b6d7e170a6866854932de40eaf1b5ed229ed818cba6a87a1f885773 for registry.dev.sbiepay.sbi:8443/library/gitlab-runner-helper:latest with digest registry.dev.sbiepay.sbi:8443/library/gitlab-runner-helper@sha256:ebbf1c21e4272ae1f8c18b034d390809c836c2fc68c0f0f6d3a5aff9760aabf5 ...
+Pulling docker image registry.dev.sbiepay.sbi:8443/hpfortify/fortify_sca_23.1.0:v2-04072025 ...
+Using docker image sha256:f421d5f3dba7d9bc2d88810ba959d589e3281c16d4aee2eae57447265e11efaf for registry.dev.sbiepay.sbi:8443/hpfortify/fortify_sca_23.1.0:v2-04072025 with digest registry.dev.sbiepay.sbi:8443/hpfortify/fortify_sca_23.1.0@sha256:ad2011f4b8f0c082a32ed849ee1ee1d93bb023a36d4cb19334438ebdb0131937 ...
+Preparing environment
+00:01
+Using helper image:  registry.dev.sbiepay.sbi:8443/library/gitlab-runner-helper:latest  (overridden, default would be  registry.gitlab.com/gitlab-org/gitlab-runner/gitlab-runner-helper:x86_64-v17.8.0 )
+Using docker image sha256:c95744588b6d7e170a6866854932de40eaf1b5ed229ed818cba6a87a1f885773 for registry.dev.sbiepay.sbi:8443/library/gitlab-runner-helper:latest with digest registry.dev.sbiepay.sbi:8443/library/gitlab-runner-helper@sha256:ebbf1c21e4272ae1f8c18b034d390809c836c2fc68c0f0f6d3a5aff9760aabf5 ...
+Running on runner-rmtqxlq3-project-113-concurrent-0 via Gitlab-DC-Runr...
+Getting source from Git repository
+00:03
+$ git config --global http.proxy $HTTP_PROXY; git config --global https.proxy $HTTPS_PROXY; git config --global no.proxy $NO_PROXY
+Fetching changes with git depth set to 20...
+Initialized empty Git repository in /tmp/builds/epay/sdks/epay_transaction_sdk_nodejs/.git/
+Created fresh repository.
+Checking out 2b067f2c as detached HEAD (ref is develop)...
+Skipping Git submodules setup
+Downloading artifacts
+00:01
+Downloading artifacts for build (220410)...
+Downloading artifacts from coordinator... ok        id=220410 responseStatus=200 OK token=glcbt-64
+Executing "step_script" stage of the job script
+00:08
+Using docker image sha256:f421d5f3dba7d9bc2d88810ba959d589e3281c16d4aee2eae57447265e11efaf for registry.dev.sbiepay.sbi:8443/hpfortify/fortify_sca_23.1.0:v2-04072025 with digest registry.dev.sbiepay.sbi:8443/hpfortify/fortify_sca_23.1.0@sha256:ad2011f4b8f0c082a32ed849ee1ee1d93bb023a36d4cb19334438ebdb0131937 ...
+$ ls
+README.md
+dist
+documents
+epay_nodejs_sdk-1.0.0-dev.tgz
+epay_nodejs_sdk-1.0.0-sit.tgz
+epay_nodejs_sdk-1.0.0-uat.tgz
+esbuild.config.js
+license.txt
+package-lock.json
+package.json
+src
+tsconfig.json
+$ SCAN_FILES=""
+$ IFS=',' read -ra INCLUDE_DIRS <<< "$INCLUDE_DIRS"
+$ for dir in "${INCLUDE_DIRS[@]}"; do SCAN_FILES="$SCAN_FILES$dir "; done
+$ echo "Scanning paths ${SCAN_FILES}"
+Scanning paths ./**/*.java 
+$ EXCLUDE_FILES=$(echo "$EXCLUDE_DIRS" | sed 's/,/:/g')
+$ echo "Excluding paths ${EXCLUDE_FILES}"
+Excluding paths ./src/test/**/*
+$ $SOURCE_ANALYZER -b $FORTIFY_PROJECT -clean
+$ $SOURCE_ANALYZER -b $FORTIFY_PROJECT "${INCLUDE_DIRS}" -verbose -exclude "${EXCLUDE_FILES}"
+[error]: No valid input files were specified.  (Use the -scan option to analyze previously-built sources.)
+[warning]: No files were excluded as the file patterns: [./src/test/**/*] specified for -exclude option did not match any files.
+Fortify Static Code Analyzer 23.1.0.0136 (using JRE 11.0.18)
+Modules:
+.NET and ASP.NET Translators 23.1.0.0136
+AngularJS Translator Utils 23.1.0.0136
+Apex Translator 23.1.0.0136
+C/C++ Translator (CTran) 23.1.0.0058
+Go Translator 23.1.0.0136
+Legacy Translators 23.1.0.0136
+MSBuild Plugin 23.1.0.0136
+Modified Rhino 23.1.0.0136
+PHP Translator 23.1.0.0136
+Python Translator 23.1.0.0136
+SCA Backend 23.1.0.0136
+SCA Frontend 23.1.0.0136
+SCA Platform 23.1.0.0136
+Fortify Static Code Analyzer 23.1.0.0136
+Copyright (c) 2003-2023 Open Text
+For command-line help, type 'sourceanalyzer -h'
+exit(2)
+Cleaning up project directory and file based variables
+00:01
+ERROR: Job failed: exit code 1
