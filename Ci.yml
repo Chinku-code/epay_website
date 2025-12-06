@@ -1,6 +1,6 @@
-# ===========================================
-# INCLUDE TEMPLATES (ONLY REQUIRED)
-# ===========================================
+# =====================================================
+# INCLUDE REQUIRED CI TEMPLATES
+# =====================================================
 include:
   - project: 'epay/devops/ci-templates'
     ref: main
@@ -14,18 +14,18 @@ include:
     ref: main
     file: 'cd/helm/services.yml'
 
-# ===========================================
+# =====================================================
 # STAGES
-# ===========================================
+# =====================================================
 stages:
   - build
   - dockerbuild
   - promote
   - trigger_cd
 
-# ===========================================
-# VARIABLES
-# ===========================================
+# =====================================================
+# GLOBAL VARIABLES
+# =====================================================
 variables:
   APP_NAME: "epay-website"
   CHART_NAME: "epay-website"
@@ -41,35 +41,72 @@ variables:
 
   PODMAN_TLS_VERIFY: "false"
 
-  # Dynamic Base URLs
+  # Dynamic URLs
   DEV_APP_BASE_URL: "https://dev-api.example.sbi"
   SIT_APP_BASE_URL: "https://sit-api.example.sbi"
   UAT_APP_BASE_URL: "https://uat-api.example.sbi"
   PREPROD_APP_BASE_URL: "https://preprod-api.example.sbi"
   PROD_APP_BASE_URL: "https://api.example.sbi"
 
-# ===========================================
-# SINGLE FRONTEND BUILD
-# ===========================================
-build:
+# =====================================================
+# 1️⃣ BUILD JOB (UPDATED PERFECT VERSION)
+# =====================================================
+.build:
   stage: build
-  image: node:18-alpine
+  image:
+    name: registry.dev.sbiepay.sbi:8443/ubi9/reactjs_npm:20241113
+    pull_policy: always
+
   script:
-    - npm ci
-    - npm run build
+    - echo "=== BUILD STARTED FOR ENV: $ENV ==="
+    - pwd
+    - ls -la
+
+    # Proxy for SBI network
+    - npm config set proxy http://serverswg.sbi.co.in:80
+    - npm config set https-proxy http://serverswg.sbi.co.in:9090
+
+    - npm cache clean --force
+
+    - |
+      if [ -n "$VERSION" ]; then
+        echo "Using VERSION=${VERSION}"
+      else
+        echo "VERSION not set — using commit SHA"
+      fi
+
+    - npm ci || npm install
+
+    - echo "=== Running build ==="
+    - npm run build:$ENV
+
+    - echo "=== Build Output ==="
+    - ls -lrth dist || echo "Dist missing!"
+
   artifacts:
     paths:
-      - dist
-    expire_in: 2h
+      - dist/
+    when: on_success
+    expire_in: 1 week
+
+# Select ENV based on branch
+build:
+  extends: .build
   rules:
     - if: $CI_COMMIT_BRANCH == "develop"
+      variables:
+        ENV: "dev"
     - if: $CI_COMMIT_BRANCH =~ /^release\/.*$/
+      variables:
+        ENV: "sit"
     - if: $CI_COMMIT_BRANCH == "main"
+      variables:
+        ENV: "prod"
     - when: never
 
-# ===========================================
-# SINGLE DOCKER BUILD
-# ===========================================
+# =====================================================
+# 2️⃣ DOCKER BUILD (SINGLE IMAGE)
+# =====================================================
 dockerbuild:
   stage: dockerbuild
   image: quay.io/podman/stable:latest
@@ -79,44 +116,50 @@ dockerbuild:
   variables:
     IMAGE_REPOSITORY: "${DEV_IMAGE_REGISTRY}${APP_NAME}"
     FULL_IMAGE: "${IMAGE_REPOSITORY}:${VERSION}"
+
   before_script:
     - echo "${DEV_REGISTRY_PASSWORD}" |
       podman login -u "${DEV_REGISTRY_USERNAME}" --password-stdin ${DEV_IMAGE_REGISTRY%/*} --tls-verify=$PODMAN_TLS_VERIFY
+
   script:
     - podman build -t "$FULL_IMAGE" .
     - podman push "$FULL_IMAGE" --tls-verify=$PODMAN_TLS_VERIFY
     - echo "IMAGE_TAG=${VERSION}" >> docker.env
+
   artifacts:
     reports:
       dotenv: docker.env
+
   rules:
-    - if: $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_COMMIT_BRANCH =~ /^(develop|main)$/
     - if: $CI_COMMIT_BRANCH =~ /^release\/.*$/
-    - if: $CI_COMMIT_BRANCH == "main"
     - when: never
 
-# ===========================================
-# PROMOTE TEMPLATE (COMMON)
-# ===========================================
+# =====================================================
+# 3️⃣ PROMOTE TEMPLATE (SINGLE IMAGE → MULTI ENV)
+# =====================================================
 .promote_template: &promote_template
   stage: promote
   image: quay.io/podman/stable:latest
   needs:
     - job: dockerbuild
       artifacts: true
+
   before_script:
     - source docker.env
     - export SOURCE_IMAGE="${DEV_IMAGE_REGISTRY%/}/${APP_NAME}:${IMAGE_TAG}"
+
   script:
     - podman login -u "$TARGET_REGISTRY_USERNAME" -p "$TARGET_REGISTRY_PASSWORD" "$TARGET_REGISTRY_HOST"
     - podman pull "$SOURCE_IMAGE"
     - podman tag "$SOURCE_IMAGE" "${TARGET_REGISTRY_HOST}/${TARGET_REGISTRY_PATH}:${IMAGE_TAG}"
     - podman push "${TARGET_REGISTRY_HOST}/${TARGET_REGISTRY_PATH}:${IMAGE_TAG}"
+
   when: manual
   rules:
     - when: manual
 
-# PROMOTE JOBS PER ENV (AUTO BASED ON BRANCH)
+# Promotion jobs
 promote_dev:
   <<: *promote_template
   variables:
@@ -157,9 +200,9 @@ promote_prod:
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
 
-# ===========================================
-# TRIGGER CD FOR DEPLOY
-# ===========================================
+# =====================================================
+# 4️⃣ TRIGGER CD (DYNAMIC NGINX + APP_BASE_URL)
+# =====================================================
 .trigger_cd_job: &trigger_cd_job
   stage: trigger_cd
   trigger:
@@ -173,7 +216,6 @@ promote_prod:
   rules:
     - when: manual
 
-# DEPLOY JOBS WITH DYNAMIC CONFIG
 deploy_dev:
   <<: *trigger_cd_job
   variables:
