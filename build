@@ -12,13 +12,10 @@
     - npm config set https-proxy http://serverswg.sbi.co.in:9090
     - npm cache clean --force
 
-    # VERSION check (single-line, safe)
     - test -n "$VERSION" && echo "Using VERSION=$VERSION" || echo "VERSION not set"
 
-    # Install dependencies
     - npm ci || npm install
 
-    # Run the environment-specific build
     - npm run build:$ENV
 
     - echo "=== BUILD COMPLETE ==="
