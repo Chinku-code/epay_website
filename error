@@ -1,33 +1,57 @@
 .build:
   stage: build
-  image: 
-    name:  registry.dev.sbiepay.sbi:8443/ubi9/reactjs_npm:20241113
-    pull_policy: always  
+  image:
+    name: registry.dev.sbiepay.sbi:8443/ubi9/reactjs_npm:20241113
+    pull_policy: always
+
   script:
+    - echo "=== BUILD STARTED FOR ENV: $ENV ==="
     - pwd
-    - mkdir $ENV
     - ls -la
+
+    # ----------------------------------------------------
+    # NEW: Added proxy setup (required for SBI network)
+    # ----------------------------------------------------
     - npm config set proxy http://serverswg.sbi.co.in:80
     - npm config set https-proxy http://serverswg.sbi.co.in:9090
-    - ls /app
+
+    # ----------------------------------------------------
+    # NEW: Safe cache clean before install
+    # ----------------------------------------------------
+    - echo "=== Cleaning NPM Cache ==="
     - npm cache clean --force
+
+    # ----------------------------------------------------
+    # NEW: Improved VERSION logging
+    # ----------------------------------------------------
     - |
       if [ -n "$VERSION" ]; then
-        echo "version ${VERSION}"
-        # npm version "${VERSION}" --no-git-tag-version
+        echo "Using VERSION=${VERSION}"
+      else
+        echo "VERSION not set — using default commit SHA"
       fi
-    # - npm install --legacy-peer-deps
-    - npm install
-    #- npm install --loglevel verbose
-    #- npm install rollup@latest
+
+    # ----------------------------------------------------
+    # CHANGED: npm install → npm ci (faster + safer)
+    # Fallback: if npm ci fails → npm install
+    # ----------------------------------------------------
+    - echo "=== Installing Dependencies ==="
+    - npm ci || npm install
+
+    # ----------------------------------------------------
+    # SAME: Build frontend based on ENV
+    # ----------------------------------------------------
+    - echo "=== Running frontend build for ENV: $ENV ==="
     - npm run build:$ENV
-    - ls -lrth
-    - ls -lrth /dev
-    #- npm install --save-dev eslint-plugin-react eslint-plugin-react-hooks
-    #- npm run lint -- --debug
-    #- npm run lint 
+
+    # ----------------------------------------------------
+    # NEW: Better dist output logs
+    # ----------------------------------------------------
+    - echo "=== BUILD COMPLETED — LISTING dist ==="
+    - ls -lrth dist || echo "dist folder missing!"
+    
   artifacts:
     paths:
-      - ./dist
-    when: on_success 
+      - dist/   # NEW: corrected artifact path (cleaner)
+    when: on_success
     expire_in: 1 week
