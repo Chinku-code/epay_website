@@ -1,512 +1,228 @@
+# =====================================================
+# INCLUDE REQUIRED CI TEMPLATES
+# =====================================================
+include:
+  - project: 'epay/devops/ci-templates'
+    ref: feature/CIfrontend
+    file: 'ci/build/vite.react.yml'
+
+  - project: 'epay/devops/ci-templates'
+    ref: feature/CIfrontend
+    file: 'ci/release/version.yml'
+
+  - project: 'epay/devops/ci-templates'
+    ref: feature/CIfrontend
+    file: 'cd/helm/services.yml'
+
+# =====================================================
+# STAGES
+# =====================================================
+stages:
+  - build
+  - dockerbuild
+  - promote
+  - trigger_cd
+
+# =====================================================
+# GLOBAL VARIABLES
+# =====================================================
 variables:
-  SERVICES_CONFIG: |
-    - namespace: transaction
-      description: "Transaction and Payment services"
-      services:
-        - name: epay_transaction_service
-          release: txn
-          chart: epay_transaction_service
-          health_check: /actuator/health
-          environments:
-            - dev
-            - sit
-            - uat
-            - int
-            - pre-prod
-            - perf
-            - pre-prod-dc
-            - prod-dr
-            - prod-dc
-        
-        - name: epay_payment_service
-          release: payment
-          chart: epay_payment_service
-          health_check: /actuator/health
-          environments:
-            - dev
-            - sit
-            - uat
-            - int
-            - pre-prod
-            - perf
-            - pre-prod-dc
-            - prod-dr
-            - prod-dc
+  APP_NAME: "epay-website"
+  CHART_NAME: "epay-website"
+  RELEASE_NAME: "websitefe"
+  VERSION: "${CI_COMMIT_SHORT_SHA}"
 
-    - namespace: admin
-      description: "Admin services"
-      services:
-        - name: epay_admin_service
-          release: admin
-          chart: epay_admin_service
-          health_check: /actuator/health
-          environments:
-            - dev
-            - sit
-            - uat
-            - int
-            - pre-prod
-            - perf
-            - pre-prod-dc
-            - prod-dr
-            - prod-dc
-    
+  DEV_IMAGE_REGISTRY: "registry.dev.sbiepay.sbi:8443/ubi9/"
+  SIT_IMAGE_REGISTRY: "registry.dev.sbiepay.sbi:8443/library/"
+  UAT_IMAGE_REGISTRY: "registry.dev.sbiepay.sbi:8443/library/"
+  PREPROD_IMAGE_REGISTRY: "epaynonprod-registry-quay-quay-enterprise.apps.preprod.epay.sbi/fe/"
+  PROD_IMAGE_REGISTRY: "registry.prod.epay.sbi:8443/fe/"
 
-    - namespace: kms
-      description: "Key Management Services"
-      services:
-        - name: epay_key_managment
-          release: kms
-          chart: epay_key_managment
-          health_check: /actuator/health
-          environments:
-            - dev
-            - sit
-            - uat
-            - int
-            - pre-prod
-            - perf
-            - pre-prod-dc
-            - prod-dr
-            - prod-dc
+  PODMAN_TLS_VERIFY: "false"
 
-    - namespace: merchant
-      description: "Merchant services"
-      services:
-        - name: epay_merchant_service
-          release: merchant
-          chart: epay_merchant_service
-          health_check: /actuator/health
-          environments:
-            - dev
-            - sit
-            - uat
-            - int
-            - pre-prod
-            - perf
-            - pre-prod-dc
-            - prod-dr
-            - prod-dc
+  DEV_APP_BASE_URL: "https://dev-api.example.sbi"
+  SIT_APP_BASE_URL: "https://sit-api.example.sbi"
+  UAT_APP_BASE_URL: "https://uat-api.example.sbi"
+  PREPROD_APP_BASE_URL: "https://preprod-api.example.sbi"
+  PROD_APP_BASE_URL: "https://api.example.sbi"
 
-        - name: epay_reports_service
-          release: report
-          chart: epay_reports_service
-          health_check: /actuator/health
-          environments:
-            - dev
-            - sit
-            - uat
-            - int
-            - pre-prod
-            - perf
-            - pre-prod-dc
-            - prod-dr
-            - prod-dc
+# =====================================================
+# 1️⃣ RENAMED BUILD JOB — fe_build
+# =====================================================
+fe_build:
+  stage: build
+  image:
+    name: registry.dev.sbiepay.sbi:8443/ubi9/reactjs_npm:20241113
+    pull_policy: always
+  script:
+    - echo "=== BUILD STARTED FOR ENV: $ENV ==="
+    - pwd
+    - ls -la
+    - npm config set proxy http://serverswg.sbi.co.in:80
+    - npm config set https-proxy http://serverswg.sbi.co.in:9090
+    - npm cache clean --force
+    - test -n "$VERSION" && echo "Using VERSION=$VERSION" || echo "VERSION not set"
+    - npm ci || npm install
+    - npm run build:$ENV
+    - echo "=== BUILD COMPLETE ==="
+    - ls -lrth dist || echo "dist missing"
+  artifacts:
+    paths:
+      - dist/
+    when: on_success
+    expire_in: 1 week
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "develop"'
+      variables: { ENV: "dev" }
+    - if: '$CI_COMMIT_BRANCH =~ /^release\/.*$/'
+      variables: { ENV: "sit" }
+    - if: '$CI_COMMIT_BRANCH == "main"'
+      variables: { ENV: "prod" }
+    - when: never
 
-    - namespace: rns
-      description: "Epay_Operations_Service"
-      services:
-        - name: epay_operations_service
-          release: ops
-          chart: epay_operations_service
-          health_check: /actuator/health
-          environments:
-            - dev
-            - sit
-            - uat
-            - int
-            - pre-prod
-            - perf
-            - pre-prod-dc
-            - prod-dr
-            - prod-dc
+# =====================================================
+# 2️⃣ DOCKER BUILD — UPDATED NEEDS
+# =====================================================
+dockerbuild:
+  stage: dockerbuild
+  image: quay.io/podman/stable:latest
+  needs:
+    - job: fe_build
+      artifacts: true
+  variables:
+    IMAGE_REPOSITORY: "${DEV_IMAGE_REGISTRY}${APP_NAME}"
+    FULL_IMAGE: "${IMAGE_REPOSITORY}:${VERSION}"
+  before_script:
+    - echo "${DEV_REGISTRY_PASSWORD}" |
+      podman login -u "${DEV_REGISTRY_USERNAME}" --password-stdin ${DEV_IMAGE_REGISTRY%/*} --tls-verify=$PODMAN_TLS_VERIFY
+  script:
+    - podman build -t "$FULL_IMAGE" .
+    - podman push "$FULL_IMAGE" --tls-verify=$PODMAN_TLS_VERIFY
+    - echo "IMAGE_TAG=${VERSION}" >> docker.env
+  artifacts:
+    reports:
+      dotenv: docker.env
+  rules:
+    - if: '$CI_COMMIT_BRANCH =~ /^(develop|main)$/'
+    - if: '$CI_COMMIT_BRANCH =~ /^release\/.*$/'
+    - when: never
 
-        - name: epay_refund_service
-          release: refund
-          chart: epay_refund_service
-          health_check: /actuator/health
-          environments:
-            - dev
-            - sit
-            - uat
-            - int
-            - pre-prod
-            - perf
-            - pre-prod-dc
-            - prod-dr
-            - prod-dc
+# =====================================================
+# 3️⃣ PROMOTE TEMPLATE (unchanged)
+# =====================================================
+.promote_template: &promote_template
+  stage: promote
+  image: quay.io/podman/stable:latest
+  needs: [dockerbuild]
+  before_script:
+    - source docker.env
+    - export SOURCE_IMAGE="${DEV_IMAGE_REGISTRY%/}/${APP_NAME}:${IMAGE_TAG}"
+  script:
+    - podman login -u "$TARGET_REGISTRY_USERNAME" -p "$TARGET_REGISTRY_PASSWORD" "$TARGET_REGISTRY_HOST"
+    - podman pull "$SOURCE_IMAGE"
+    - podman tag "$SOURCE_IMAGE" "${TARGET_REGISTRY_HOST}/${TARGET_REGISTRY_PATH}:${IMAGE_TAG}"
+    - podman push "${TARGET_REGISTRY_HOST}/${TARGET_REGISTRY_PATH}:${IMAGE_TAG}"
+  when: manual
+  rules:
+    - when: manual
 
-        - name: epay_sftp_service
-          release: sftp
-          chart: epay_sftp_service
-          health_check: /actuator/health
-          environments:
-            - dev
-            - sit
-            - uat
-            - int
-            - pre-prod
-            - perf
-            - pre-prod-dc
-            - prod-dr
-            - prod-dc
+promote_dev:
+  <<: *promote_template
+  variables:
+    TARGET_REGISTRY_HOST: "${DEV_IMAGE_REGISTRY%/}"
+    TARGET_REGISTRY_PATH: "${APP_NAME}"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "develop"'
 
-    - namespace: notification
-      description: "Notification services"
-      services:
-        - name: epay_notification_service
-          release: notify
-          chart: epay_notification_service
-          health_check: /actuator/health
-          environments:
-            - dev
-            - sit
-            - uat
-            - int
-            - pre-prod
-            - perf
-            - pre-prod-dc
-            - prod-dr
-            - prod-dc
+promote_sit:
+  <<: *promote_template
+  variables:
+    TARGET_REGISTRY_HOST: "${SIT_IMAGE_REGISTRY%/}"
+    TARGET_REGISTRY_PATH: "${APP_NAME}"
+  rules:
+    - if: '$CI_COMMIT_BRANCH =~ /^release\/.*$/'
 
-    - namespace: frontend
-      description: "Frontend services"
-      services:
-        - name: epay_merchant_fe
-          release: merchantfe
-          chart: epay_merchant_fe
-          health_check: /health
-          environments:
-            - dev
-            - sit
-            - uat
-            - int
-            - pre-prod
-            - perf
-            - pre-prod-dc
-            - prod-dr
-            - prod-dc
-        
-        - name: epay_transaction_fe
-          release: transactionfe
-          chart: epay_transaction_fe
-          health_check: /health
-          environments:
-            - dev
-            - sit
-            - uat
-            - int
-            - pre-prod
-            - perf
-            - pre-prod-dc
-            - prod-dr
-            - prod-dc
+promote_uat:
+  <<: *promote_template
+  variables:
+    TARGET_REGISTRY_HOST: "${UAT_IMAGE_REGISTRY%/}"
+    TARGET_REGISTRY_PATH: "${APP_NAME}"
+  rules:
+    - if: '$CI_COMMIT_BRANCH =~ /^release\/.*$/'
 
-        - name: epay_maintenance_fe
-          release: maintenancefe
-          chart: epay_maintenance_fe
-          health_check: /health
-          environments:
-            - dev
-            - sit
-            - uat
-            - int
-            - pre-prod
-            - perf
-            - pre-prod-dc
-            - prod-dr
-            - prod-dc
+promote_preprod:
+  <<: *promote_template
+  variables:
+    TARGET_REGISTRY_HOST: "${PREPROD_IMAGE_REGISTRY%/}"
+    TARGET_REGISTRY_PATH: "${APP_NAME}"
+  rules:
+    - if: '$CI_COMMIT_BRANCH =~ /^release\/.*$/'
 
-        - name: epay_website
-          release: websitefe
-          chart: epay_website
-          health_check: /health
-          environments:
-            - dev
-            - sit
-            - uat
-            - int
-            - pre-prod
-            - perf
-            - pre-prod-dc
-            - prod-dr
-            - prod-dc
+promote_prod:
+  <<: *promote_template
+  variables:
+    TARGET_REGISTRY_HOST: "${PROD_IMAGE_REGISTRY%/}"
+    TARGET_REGISTRY_PATH: "${APP_NAME}"
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
 
-        - name: epay_merchant_integration_doc
-          release: merchant-int
-          chart: epay_merchant_integration_doc
-          health_check: /health
-          environments:
-            - dev
-            - sit
-            - uat
-            - int
-            - pre-prod
-            - perf
-            - pre-prod-dc
-            - prod-dr
-            - prod-dc
+# =====================================================
+# 4️⃣ TRIGGER CD (unchanged)
+# =====================================================
+.trigger_cd_job: &trigger_cd_job
+  stage: trigger_cd
+  trigger:
+    project: epay/devops/deployment
+    branch: feature/dynamicnginx
+    strategy: depend
+    forward:
+      pipeline_variables: true
+      yaml_variables: true
+  when: manual
+  rules:
+    - when: manual
 
-    - namespace: simulators
-      description: "Simulator services"
-      services:
-        - name: java-utility-api-simulator
-          release: javasimulator
-          chart: java-utility-api-simulator
-          health_check: /actuator/health
-          environments:
-            - dev
-            - sit
-            - uat
-            - int
-            - pre-prod
-            - perf
-            - pre-prod-dc
-            - prod-dr
-            - prod-dc
-        
-        - name: epay_order_hash
-          release: orderhash
-          chart: epay_order_hash
-          health_check: /actuator/health
-          environments:
-            - dev
-            - sit
-            - uat
-            - int
-            - pre-prod
-            - perf
-            - pre-prod-dc
-            - prod-dr
-            - prod-dc
+deploy_dev:
+  <<: *trigger_cd_job
+  variables:
+    ENV: dev
+    VERSION: $VERSION
+    APP_BASE_URL: $DEV_APP_BASE_URL
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "develop"'
 
-        - name: epay_stubs_service
-          release: stubsservice
-          chart: epay_stubs_service
-          health_check: /actuator/health
-          environments:
-            - dev
-            - perf
-            - int
-            
-        - name: epay_perf_simulator
-          release: perf
-          chart: epay_perf_simulator
-          health_check: /health
-          environments:
-            - dev
-            - perf
+deploy_sit:
+  <<: *trigger_cd_job
+  variables:
+    ENV: sit
+    VERSION: $VERSION
+    APP_BASE_URL: $SIT_APP_BASE_URL
+  rules:
+    - if: '$CI_COMMIT_BRANCH =~ /^release\/.*$/'
 
-        - name: epay_merchant_simulator
-          release: demo
-          chart: epay_merchant_simulator
-          health_check: /health
-          environments:
-            - dev
-            - sit
-            - uat
-            - int
-            - pre-prod
-            - perf
-            - pre-prod-dc
-            - prod-dr
-            - prod-dc
+deploy_uat:
+  <<: *trigger_cd_job
+  variables:
+    ENV: uat
+    VERSION: $VERSION
+    APP_BASE_URL: $UAT_APP_BASE_URL
+  rules:
+    - if: '$CI_COMMIT_BRANCH =~ /^release\/.*$/'
 
-        - name: merchant_api_simulator_nodejs
-          release: nodejssimulator
-          chart: merchant_api_simulator_nodejs
-          health_check: /actuator/health
-          environments:
-            - dev
-            - sit
-            - uat
-            - int
-            - pre-prod
-            - perf
-            - pre-prod-dc
+deploy_preprod:
+  <<: *trigger_cd_job
+  variables:
+    ENV: pre-prod
+    VERSION: $VERSION
+    APP_BASE_URL: $PREPROD_APP_BASE_URL
+  rules:
+    - if: '$CI_COMMIT_BRANCH =~ /^release\/.*$/'
 
-        - name: merchant_api_simulator_python
-          release: pythonsimulator
-          chart: merchant_api_simulator_python
-          health_check: /actuator/health
-          environments:
-            - dev
-            - sit
-            - uat
-            - int
-            - pre-prod
-            - perf
-            - pre-prod-dc
-            - prod-dr
-            - prod-dc    
-      
-      - name: merchant_api_simulator_dotnet
-          release: dotnetsimulator
-          chart: merchant_api_simulator_dotnet
-          health_check: /actuator/health
-          environments:
-            - dev
-            - sit
-            - uat
-            - int
-            - pre-prod
-            - perf
-            - pre-prod-dc
-            - prod-dr
-            - prod-dc
-      
-      - name: merchant_api_simulator_php
-          release: phpsimulator
-          chart: merchant_api_simulator_php
-          health_check: /actuator/health
-          environments:
-            - dev
-            - sit
-            - uat
-            - int
-            - pre-prod
-            - perf
-            - pre-prod-dc
-            - prod-dr
-            - prod-dc
-
-    - namespace: offline-jobs
-      description: "Offline job services"
-      services:
-        - name: epay_gateway_pooling
-          release: pooling
-          chart: epay_gateway_pooling
-          health_check: /actuator/health
-          environments:
-            - dev
-            - sit
-            - uat
-            - int
-            - pre-prod
-            - perf
-            - pre-prod-dc
-            - prod-dr
-            - prod-dc
-
-    - namespace: epay-common
-      description: "Epay Common (Gemfire, Kafka, Istio, SSC, NP)"
-      services:
-        - name: epay_common
-          release: epay-common
-          chart: epay_common
-          health_check: /actuator/health
-          environments:
-            - dev
-            - sit
-            - uat
-            - int
-            - pre-prod
-            - perf
-            - pre-prod-dc
-            - prod-dr
-            - prod-dc
-
-        - name: epay_secrets
-          release: epaysecrets
-          chart: epay_secrets
-          health_check: /health
-          environments:
-            - prod-dr
-            - prod-dc
-            - pre-prod
-            - pre-prod-dc
-
-        - name: epay_cluster_base
-          release: epay-cluster-base
-          chart: epay_cluster_base
-          health_check: /actuator/health
-          environments:
-            - pre-prod
-            - perf
-            - pre-prod-dc
-            - prod
-            - prod-dc       
-  
-
-    - namespace: testci
-      description: "testci services"
-      services:
-        - name: testci
-          release: testci
-          chart: testci
-          health_check: /actuator/health
-          environments:
-            - dev
-            - sit
-            - uat
-            - int
-            - pre-prod
-            - perf
-            - pre-prod-dc
-            - prod-dr
-            - prod-dc
-    
-    - namespace: communication
-      description: "Communication services"
-      services:
-        - name: epay_communication_service
-          release: comm
-          chart: epay_communication_service
-          health_check: /health
-          environments:
-            - dev
-            - sit
-            - uat
-            - int
-
-
-    - namespace: integration
-      description: "Integration services"
-      services:
-        - name: epay_integration_service
-          release: integration
-          chart: epay_integration_service
-          health_check: /actuator/health
-          environments:
-            - dev
-            - sit
-            - uat
-            - int
-            - pre-prod
-            - perf
-            - pre-prod-dc
-            - prod-dr
-            - prod-dc
-    
-    # - namespace: spark
-    #   description: "Epay_Operations_Service"
-    #   services:
-    #     - name: epay_operations_service
-    #       release: ops
-    #       chart: epay_operations_service
-    #       health_check: /actuator/health
-    #       environments:
-    #         - dev
-    #         #- sit
-    #         #- uat
-    #         - int
-    #         #- pre-prod
-    #         #- perf
-    #         #- pre-prod-dc
-    #         #- prod-dr
-    #         #- prod-dc
-
-    - namespace: istio-system
-      description: "Dummy helm chart for controlling global scale up/down"
-      services:
-        - name: scale-controller
-          release: scale-controller
-          chart: scale-controller
-          health_check: /actuator/health
-          environments:
-            - dev
-            - pre-prod
-            - pre-prod-dc
-            - prod-dr
-            - prod-dc
-
+deploy_prod:
+  <<: *trigger_cd_job
+  variables:
+    ENV: prod
+    VERSION: $VERSION
+    APP_BASE_URL: $PROD_APP_BASE_URL
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main"'
