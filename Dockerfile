@@ -1,20 +1,18 @@
-##FROM registry.dev.sbiepay.sbi:8443/ubi9/nginx-126:9.6-1755735243
 FROM registry.dev.sbiepay.sbi:8443/ubi9/nginx-126:9.6-1756959223
 
 USER 0
 
-# Create app folder
+# Create app folder + copy build output + set permissions
 RUN mkdir -p /usr/share/nginx/html/home
 
-# Copy frontend build output
-COPY ./dist/ /usr/share/nginx/html/home
-RUN chmod 755 -R /usr/share/nginx/html/home
-RUN chown -R nginx:nginx /usr/share/nginx/html/home
+COPY dist/ /usr/share/nginx/html/home/
 
-# DO NOT COPY nginx.conf (this will break multi-env)
-# nginx.conf will be injected from Helm ConfigMap
-# COPY ./nginx.conf /etc/nginx/nginx.conf   <-- REMOVE THIS LINE
+RUN chmod -R 755 /usr/share/nginx/html/home && \
+    chown -R nginx:nginx /usr/share/nginx/html/home
+
+# DO NOT COPY nginx.conf (ConfigMap will inject it based on ENV)
+# Correct dynamic NGINX setup — NO STATIC nginx.conf inside image
 
 EXPOSE 8080
 
-CMD ["/usr/sbin/nginx", "-g", "daemon off;"]
+CMD ["nginx", "-g", "daemon off;"]
