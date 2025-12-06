@@ -1,20 +1,128 @@
 # =====================================================
-# 1️⃣ RENAMED BUILD JOB — fe_build
+# STAGES
 # =====================================================
-fe_build:
+stages:
+  - build
+  - dockerbuild
+
+# =====================================================
+# GLOBAL VARIABLES
+# =====================================================
+variables:
+  APP_NAME: "epay-website"
+  VERSION: "$CI_COMMIT_SHORT_SHA"
+  DEV_IMAGE_REGISTRY: "registry.dev.sbiepay.sbi:8443/ubi9/"
+  PODMAN_TLS_VERIFY: "false"
+
+# =====================================================
+# 1️⃣ BUILD JOBS (ENV-BASED)
+# =====================================================
+
+fe_build_dev:
   stage: build
+  variables:
+    ENV: "dev"
   image:
     name: registry.dev.sbiepay.sbi:8443/ubi9/reactjs_npm:20241113
     pull_policy: always
   script:
-    - echo "=== BUILD STARTED FOR ENV: $ENV ==="
-    - pwd
-    - ls -la
-    - npm config set proxy http://serverswg.sbi.co.in:80
-    - npm config set https-proxy http://serverswg.sbi.co.in:9090
+    - echo "===== DEV BUILD STARTED ====="
     - npm cache clean --force
-    - test -n "$VERSION" && echo "Using VERSION=$VERSION" || echo "VERSION not set"
     - npm ci || npm install
     - npm run build:$ENV
-    - echo "=== BUILD COMPLETE ==="
-    - ls -lrth dist || echo "dist missing"
+    - echo "===== DEV BUILD COMPLETE ====="
+  artifacts:
+    paths: [dist/]
+    expire_in: 1 week
+  only:
+    - develop
+
+fe_build_sit:
+  stage: build
+  variables:
+    ENV: "sit"
+  image:
+    name: registry.dev.sbiepay.sbi:8443/ubi9/reactjs_npm:20241113
+    pull_policy: always
+  script:
+    - echo "===== SIT BUILD STARTED ====="
+    - npm cache clean --force
+    - npm ci || npm install
+    - npm run build:$ENV
+    - echo "===== SIT BUILD COMPLETE ====="
+  artifacts:
+    paths: [dist/]
+    expire_in: 1 week
+  only:
+    - /^release\/.*$/
+
+fe_build_prod:
+  stage: build
+  variables:
+    ENV: "prod"
+  image:
+    name: registry.dev.sbiepay.sbi:8443/ubi9/reactjs_npm:20241113
+    pull_policy: always
+  script:
+    - echo "===== PROD BUILD STARTED ====="
+    - npm cache clean --force
+    - npm ci || npm install
+    - npm run build:$ENV
+    - echo "===== PROD BUILD COMPLETE ====="
+  artifacts:
+    paths: [dist/]
+    expire_in: 1 week
+  only:
+    - main
+
+# =====================================================
+# 2️⃣ DOCKER BUILD JOBS
+# =====================================================
+
+dockerbuild_dev:
+  stage: dockerbuild
+  image: quay.io/podman/stable:latest
+  needs:
+    - job: fe_build_dev
+      artifacts: true
+  variables:
+    FULL_IMAGE: "${DEV_IMAGE_REGISTRY}${APP_NAME}:${VERSION}"
+  script:
+    - echo "$DEV_REGISTRY_PASSWORD" |
+      podman login -u "$DEV_REGISTRY_USERNAME" --password-stdin ${DEV_IMAGE_REGISTRY%/*}
+    - podman build -t "$FULL_IMAGE" .
+    - podman push "$FULL_IMAGE"
+  only:
+    - develop
+
+dockerbuild_sit:
+  stage: dockerbuild
+  image: quay.io/podman/stable:latest
+  needs:
+    - job: fe_build_sit
+      artifacts: true
+  variables:
+    FULL_IMAGE: "${DEV_IMAGE_REGISTRY}${APP_NAME}:${VERSION}"
+  script:
+    - echo "$DEV_REGISTRY_PASSWORD" |
+      podman login -u "$DEV_REGISTRY_USERNAME" --password-stdin ${DEV_IMAGE_REGISTRY%/*}
+    - podman build -t "$FULL_IMAGE" .
+    - podman push "$FULL_IMAGE"
+  only:
+    - /^release\/.*$/
+
+dockerbuild_prod:
+  stage: dockerbuild
+  image: quay.io/podman/stable:latest
+  needs:
+    - job: fe_build_prod
+      artifacts: true
+  variables:
+    FULL_IMAGE: "${DEV_IMAGE_REGISTRY}${APP_NAME}:${VERSION}"
+  script:
+    - echo "$DEV_REGISTRY_PASSWORD" |
+      podman login -u "$DEV_REGISTRY_USERNAME" --password-stdin ${DEV_IMAGE_REGISTRY%/*}
+    - podman build -t "$FULL_IMAGE" .
+    - podman push "$FULL_IMAGE"
+  only:
+    - main
