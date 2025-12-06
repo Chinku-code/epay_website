@@ -1,3 +1,56 @@
+## =====================================================
+# INCLUDE REQUIRED CI TEMPLATES
+# =====================================================
+include:
+  - project: 'epay/devops/ci-templates'
+    ref: feature/CIfrontend
+    file: 'ci/build/vite.react.yml'
+
+  - project: 'epay/devops/ci-templates'
+    ref: feature/CIfrontend
+    file: 'ci/release/version.yml'
+
+  - project: 'epay/devops/ci-templates'
+    ref: feature/CIfrontend
+    file: 'cd/helm/services.yml'
+
+# =====================================================
+# STAGES
+# =====================================================
+stages:
+  - build
+  - dockerbuild
+  - promote
+  - trigger_cd
+
+# =====================================================
+# GLOBAL VARIABLES
+# =====================================================
+variables:
+  APP_NAME: "epay-website"
+  CHART_NAME: "epay-website"
+  RELEASE_NAME: "websitefe"
+  VERSION: "${CI_COMMIT_SHORT_SHA}"
+
+  # Registries
+  DEV_IMAGE_REGISTRY: "registry.dev.sbiepay.sbi:8443/ubi9/"
+  SIT_IMAGE_REGISTRY: "registry.dev.sbiepay.sbi:8443/library/"
+  UAT_IMAGE_REGISTRY: "registry.dev.sbiepay.sbi:8443/library/"
+  PREPROD_IMAGE_REGISTRY: "epaynonprod-registry-quay-quay-enterprise.apps.preprod.epay.sbi/fe/"
+  PROD_IMAGE_REGISTRY: "registry.prod.epay.sbi:8443/fe/"
+
+  PODMAN_TLS_VERIFY: "false"
+
+  # Dynamic URLs
+  DEV_APP_BASE_URL: "https://dev-api.example.sbi"
+  SIT_APP_BASE_URL: "https://sit-api.example.sbi"
+  UAT_APP_BASE_URL: "https://uat-api.example.sbi"
+  PREPROD_APP_BASE_URL: "https://preprod-api.example.sbi"
+  PROD_APP_BASE_URL: "https://api.example.sbi"
+
+# =====================================================
+# 1️⃣ BUILD JOB (UPDATED PERFECT VERSION)
+# =====================================================
 .build:
   stage: build
   image:
@@ -8,21 +61,202 @@
     - echo "=== BUILD STARTED FOR ENV: $ENV ==="
     - pwd
     - ls -la
+
+    # Proxy for SBI network
     - npm config set proxy http://serverswg.sbi.co.in:80
     - npm config set https-proxy http://serverswg.sbi.co.in:9090
+
     - npm cache clean --force
 
-    - test -n "$VERSION" && echo "Using VERSION=$VERSION" || echo "VERSION not set"
+    - |
+      if [ -n "$VERSION" ]; then
+        echo "Using VERSION=${VERSION}"
+      else
+        echo "VERSION not set — using commit SHA"
+      fi
 
     - npm ci || npm install
 
+    - echo "=== Running build ==="
     - npm run build:$ENV
 
-    - echo "=== BUILD COMPLETE ==="
-    - ls -lrth dist || echo "dist missing"
+    - echo "=== Build Output ==="
+    - ls -lrth dist || echo "Dist missing!"
 
   artifacts:
     paths:
       - dist/
     when: on_success
     expire_in: 1 week
+
+# Select ENV based on branch
+build:
+  extends: .build
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+      variables:
+        ENV: "dev"
+    - if: $CI_COMMIT_BRANCH =~ /^release\/.*$/
+      variables:
+        ENV: "sit"
+    - if: $CI_COMMIT_BRANCH == "main"
+      variables:
+        ENV: "prod"
+    - when: never
+
+# =====================================================
+# 2️⃣ DOCKER BUILD (SINGLE IMAGE)
+# =====================================================
+dockerbuild:
+  stage: dockerbuild
+  image: quay.io/podman/stable:latest
+  needs:
+    - job: build
+      artifacts: true
+  variables:
+    IMAGE_REPOSITORY: "${DEV_IMAGE_REGISTRY}${APP_NAME}"
+    FULL_IMAGE: "${IMAGE_REPOSITORY}:${VERSION}"
+
+  before_script:
+    - echo "${DEV_REGISTRY_PASSWORD}" |
+      podman login -u "${DEV_REGISTRY_USERNAME}" --password-stdin ${DEV_IMAGE_REGISTRY%/*} --tls-verify=$PODMAN_TLS_VERIFY
+
+  script:
+    - podman build -t "$FULL_IMAGE" .
+    - podman push "$FULL_IMAGE" --tls-verify=$PODMAN_TLS_VERIFY
+    - echo "IMAGE_TAG=${VERSION}" >> docker.env
+
+  artifacts:
+    reports:
+      dotenv: docker.env
+
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /^(develop|main)$/
+    - if: $CI_COMMIT_BRANCH =~ /^release\/.*$/
+    - when: never
+
+# =====================================================
+# 3️⃣ PROMOTE TEMPLATE (SINGLE IMAGE → MULTI ENV)
+# =====================================================
+.promote_template: &promote_template
+  stage: promote
+  image: quay.io/podman/stable:latest
+  needs:
+    - job: dockerbuild
+      artifacts: true
+
+  before_script:
+    - source docker.env
+    - export SOURCE_IMAGE="${DEV_IMAGE_REGISTRY%/}/${APP_NAME}:${IMAGE_TAG}"
+
+  script:
+    - podman login -u "$TARGET_REGISTRY_USERNAME" -p "$TARGET_REGISTRY_PASSWORD" "$TARGET_REGISTRY_HOST"
+    - podman pull "$SOURCE_IMAGE"
+    - podman tag "$SOURCE_IMAGE" "${TARGET_REGISTRY_HOST}/${TARGET_REGISTRY_PATH}:${IMAGE_TAG}"
+    - podman push "${TARGET_REGISTRY_HOST}/${TARGET_REGISTRY_PATH}:${IMAGE_TAG}"
+
+  when: manual
+  rules:
+    - when: manual
+
+# Promotion jobs
+promote_dev:
+  <<: *promote_template
+  variables:
+    TARGET_REGISTRY_HOST: "${DEV_IMAGE_REGISTRY%/}"
+    TARGET_REGISTRY_PATH: "${APP_NAME}"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+promote_sit:
+  <<: *promote_template
+  variables:
+    TARGET_REGISTRY_HOST: "${SIT_IMAGE_REGISTRY%/}"
+    TARGET_REGISTRY_PATH: "${APP_NAME}"
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /^release\/.*$/
+
+promote_uat:
+  <<: *promote_template
+  variables:
+    TARGET_REGISTRY_HOST: "${UAT_IMAGE_REGISTRY%/}"
+    TARGET_REGISTRY_PATH: "${APP_NAME}"
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /^release\/.*$/
+
+promote_preprod:
+  <<: *promote_template
+  variables:
+    TARGET_REGISTRY_HOST: "${PREPROD_IMAGE_REGISTRY%/}"
+    TARGET_REGISTRY_PATH: "${APP_NAME}"
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /^release\/.*$/
+
+promote_prod:
+  <<: *promote_template
+  variables:
+    TARGET_REGISTRY_HOST: "${PROD_IMAGE_REGISTRY%/}"
+    TARGET_REGISTRY_PATH: "${APP_NAME}"
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+
+# =====================================================
+# 4️⃣ TRIGGER CD (DYNAMIC NGINX + APP_BASE_URL)
+# =====================================================
+.trigger_cd_job: &trigger_cd_job
+  stage: trigger_cd
+  trigger:
+    project: epay/devops/deployment
+    branch: feature/dynamicnginx
+    strategy: depend
+    forward:
+      pipeline_variables: true
+      yaml_variables: true
+  when: manual
+  rules:
+    - when: manual
+
+deploy_dev:
+  <<: *trigger_cd_job
+  variables:
+    ENV: dev
+    VERSION: $VERSION
+    APP_BASE_URL: $DEV_APP_BASE_URL
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+deploy_sit:
+  <<: *trigger_cd_job
+  variables:
+    ENV: sit
+    VERSION: $VERSION
+    APP_BASE_URL: $SIT_APP_BASE_URL
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /^release\/.*$/
+
+deploy_uat:
+  <<: *trigger_cd_job
+  variables:
+    ENV: uat
+    VERSION: $VERSION
+    APP_BASE_URL: $UAT_APP_BASE_URL
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /^release\/.*$/
+
+deploy_preprod:
+  <<: *trigger_cd_job
+  variables:
+    ENV: pre-prod
+    VERSION: $VERSION
+    APP_BASE_URL: $PREPROD_APP_BASE_URL
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /^release\/.*$/
+
+deploy_prod:
+  <<: *trigger_cd_job
+  variables:
+    ENV: prod
+    VERSION: $VERSION
+    APP_BASE_URL: $PROD_APP_BASE_URL
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
