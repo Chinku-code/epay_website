@@ -1,259 +1,64 @@
-# =====================================================
-# STAGES
-# =====================================================
 stages:
   - build
   - dockerbuild
   - promote
   - deploy
 
-# =====================================================
-# GLOBAL VARIABLES
-# =====================================================
 variables:
   APP_NAME: "epay-website"
   VERSION: "$CI_COMMIT_SHORT_SHA"
-
   DEV_IMAGE_REGISTRY: "registry.dev.sbiepay.sbi:8443/ubi9/"
-  SIT_IMAGE_REGISTRY: "registry.dev.sbiepay.sbi:8443/library/"
-  UAT_IMAGE_REGISTRY: "registry.dev.sbiepay.sbi:8443/library/"
-  PREPROD_IMAGE_REGISTRY: "epaynonprod-registry-quay-quay-enterprise.apps.preprod.epay.sbi/fe/"
-  PERF_IMAGE_REGISTRY: "epaynonprod-registry-quay-quay-enterprise.apps.preprod.epay.sbi/fe/"
-  PROD_IMAGE_REGISTRY: "registry.prod.epay.sbi:8443/fe/"
-
   PODMAN_TLS_VERIFY: "false"
 
-  # Dynamic API URLs (for CD)
-  DEV_APP_BASE_URL: "https://dev-api.example.sbi"
-  SIT_APP_BASE_URL: "https://sit-api.example.sbi"
-  UAT_APP_BASE_URL: "https://uat-api.example.sbi"
-  PREPROD_APP_BASE_URL: "https://preprod-api.example.sbi"
-  PERF_APP_BASE_URL: "https://perf-api.example.sbi"
-  PROD_APP_BASE_URL: "https://api.example.sbi"
+# =====================================================
+# 1) SINGLE BUILD (ONE TIME ONLY)
+# =====================================================
+fe_build:
+  stage: build
+  image:
+    name: registry.dev.sbiepay.sbi:8443/ubi9/reactjs_npm:20241113
+    pull_policy: always
+  script:
+    - echo "===== SINGLE BUILD STARTED ====="
+    - npm cache clean --force
+    - npm ci || npm install
+    - npm run build:dev
+    - echo "===== BUILD COMPLETE ====="
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 week
+  rules:
+    - if: $CI_COMMIT_BRANCH        # run on ALL branches
 
 # =====================================================
-# 1) BUILD JOBS (branch-based)
+# 2) SINGLE DOCKER BUILD (ONE IMAGE ONLY)
 # =====================================================
-
-fe_build_dev:
-  stage: build
-  variables:
-    ENV: "dev"
-  image:
-    name: registry.dev.sbiepay.sbi:8443/ubi9/reactjs_npm:20241113
-    pull_policy: always
-  script:
-    - echo "===== DEV BUILD STARTED ====="
-    - npm cache clean --force
-    - npm ci || npm install
-    - npm run build:$ENV
-    - echo "===== DEV BUILD COMPLETE ====="
-  artifacts:
-    paths:
-      - dist/
-    expire_in: 1 week
-  only:
-    - develop
-
-fe_build_sit:
-  stage: build
-  variables:
-    ENV: "sit"
-  image:
-    name: registry.dev.sbiepay.sbi:8443/ubi9/reactjs_npm:20241113
-    pull_policy: always
-  script:
-    - echo "===== SIT BUILD STARTED ====="
-    - npm cache clean --force
-    - npm ci || npm install
-    - npm run build:$ENV
-    - echo "===== SIT BUILD COMPLETE ====="
-  artifacts:
-    paths:
-      - dist/
-    expire_in: 1 week
-  only:
-    - /^release\/.*$/
-
-fe_build_uat:
-  stage: build
-  variables:
-    ENV: "uat"
-  image:
-    name: registry.dev.sbiepay.sbi:8443/ubi9/reactjs_npm:20241113
-    pull_policy: always
-  script:
-    - echo "===== UAT BUILD STARTED ====="
-    - npm cache clean --force
-    - npm ci || npm install
-    - npm run build:$ENV
-    - echo "===== UAT BUILD COMPLETE ====="
-  artifacts:
-    paths:
-      - dist/
-    expire_in: 1 week
-  only:
-    - /^release\/.*$/
-
-fe_build_preprod:
-  stage: build
-  variables:
-    ENV: "pre-prod"
-  image:
-    name: registry.dev.sbiepay.sbi:8443/ubi9/reactjs_npm:20241113
-    pull_policy: always
-  script:
-    - echo "===== PRE-PROD BUILD STARTED ====="
-    - npm cache clean --force
-    - npm ci || npm install
-    - npm run build:$ENV
-    - echo "===== PRE-PROD BUILD COMPLETE ====="
-  artifacts:
-    paths:
-      - dist/
-    expire_in: 1 week
-  only:
-    - /^release\/.*$/
-
-fe_build_perf:
-  stage: build
-  variables:
-    ENV: "perf"
-  image:
-    name: registry.dev.sbiepay.sbi:8443/ubi9/reactjs_npm:20241113
-    pull_policy: always
-  script:
-    - echo "===== PERF BUILD STARTED ====="
-    - npm cache clean --force
-    - npm ci || npm install
-    - npm run build:$ENV
-    - echo "===== PERF BUILD COMPLETE ====="
-  artifacts:
-    paths:
-      - dist/
-    expire_in: 1 week
-  only:
-    - /^release\/.*$/
-
-fe_build_prod:
-  stage: build
-  variables:
-    ENV: "prod"
-  image:
-    name: registry.dev.sbiepay.sbi:8443/ubi9/reactjs_npm:20241113
-    pull_policy: always
-  script:
-    - echo "===== PROD BUILD STARTED ====="
-    - npm cache clean --force
-    - npm ci || npm install
-    - npm run build:$ENV
-    - echo "===== PROD BUILD COMPLETE ====="
-  artifacts:
-    paths:
-      - dist/
-    expire_in: 1 week
-  only:
-    - main
-
-# =====================================================
-# 2) DOCKER BUILD JOBS (one per env)
-# =====================================================
-
-dockerbuild_dev:
+dockerbuild:
   stage: dockerbuild
   image: quay.io/podman/stable:latest
-  needs:
-    - fe_build_dev
+  needs: ["fe_build"]
   variables:
     FULL_IMAGE: "${DEV_IMAGE_REGISTRY}${APP_NAME}:${VERSION}"
   script:
-    - echo "$DEV_REGISTRY_PASSWORD" | podman login -u "$DEV_REGISTRY_USERNAME" --password-stdin ${DEV_IMAGE_REGISTRY%/*}
+    - echo "$DEV_REGISTRY_PASSWORD" |
+      podman login -u "$DEV_REGISTRY_USERNAME" --password-stdin ${DEV_IMAGE_REGISTRY%/*}
     - podman build -t "$FULL_IMAGE" .
     - podman push "$FULL_IMAGE"
-    - echo "FULL_IMAGE=$FULL_IMAGE" >> docker.env
+    - echo "SOURCE_IMAGE=$FULL_IMAGE" >> docker.env
   artifacts:
     reports:
       dotenv: docker.env
-  only:
-    - develop
-
-dockerbuild_sit:
-  stage: dockerbuild
-  image: quay.io/podman/stable:latest
-  needs:
-    - fe_build_sit
-  variables:
-    FULL_IMAGE: "${DEV_IMAGE_REGISTRY}${APP_NAME}:${VERSION}"
-  script:
-    - echo "$DEV_REGISTRY_PASSWORD" | podman login -u "$DEV_REGISTRY_USERNAME" --password-stdin ${DEV_IMAGE_REGISTRY%/*}
-    - podman build -t "$FULL_IMAGE" .
-    - podman push "$FULL_IMAGE"
-  only:
-    - /^release\/.*$/
-
-dockerbuild_uat:
-  stage: dockerbuild
-  image: quay.io/podman/stable:latest
-  needs:
-    - fe_build_uat
-  variables:
-    FULL_IMAGE: "${DEV_IMAGE_REGISTRY}${APP_NAME}:${VERSION}"
-  script:
-    - echo "$DEV_REGISTRY_PASSWORD" | podman login -u "$DEV_REGISTRY_USERNAME" --password-stdin ${DEV_IMAGE_REGISTRY%/*}
-    - podman build -t "$FULL_IMAGE" .
-    - podman push "$FULL_IMAGE"
-  only:
-    - /^release\/.*$/
-
-dockerbuild_preprod:
-  stage: dockerbuild
-  image: quay.io/podman/stable:latest
-  needs:
-    - fe_build_preprod
-  variables:
-    FULL_IMAGE: "${DEV_IMAGE_REGISTRY}${APP_NAME}:${VERSION}"
-  script:
-    - echo "$DEV_REGISTRY_PASSWORD" | podman login -u "$DEV_REGISTRY_USERNAME" --password-stdin ${DEV_IMAGE_REGISTRY%/*}
-    - podman build -t "$FULL_IMAGE" .
-    - podman push "$FULL_IMAGE"
-  only:
-    - /^release\/.*$/
-
-dockerbuild_perf:
-  stage: dockerbuild
-  image: quay.io/podman/stable:latest
-  needs:
-    - fe_build_perf
-  variables:
-    FULL_IMAGE: "${DEV_IMAGE_REGISTRY}${APP_NAME}:${VERSION}"
-  script:
-    - echo "$DEV_REGISTRY_PASSWORD" | podman login -u "$DEV_REGISTRY_USERNAME" --password-stdin ${DEV_IMAGE_REGISTRY%/*}
-    - podman build -t "$FULL_IMAGE" .
-    - podman push "$FULL_IMAGE"
-  only:
-    - /^release\/.*$/
-
-dockerbuild_prod:
-  stage: dockerbuild
-  image: quay.io/podman/stable:latest
-  needs:
-    - fe_build_prod
-  variables:
-    FULL_IMAGE: "${DEV_IMAGE_REGISTRY}${APP_NAME}:${VERSION}"
-  script:
-    - echo "$DEV_REGISTRY_PASSWORD" | podman login -u "$DEV_REGISTRY_USERNAME" --password-stdin ${DEV_IMAGE_REGISTRY%/*}
-    - podman build -t "$FULL_IMAGE" .
-    - podman push "$FULL_IMAGE"
-  only:
-    - main
+  rules:
+    - if: $CI_COMMIT_BRANCH
 
 # =====================================================
-# 3) PROMOTE (DEV → other registries)
+# 3) PROMOTE TO ALL ENVIRONMENTS USING SAME IMAGE
 # =====================================================
-
 .promote_template: &promote_template
   stage: promote
   image: quay.io/podman/stable:latest
+  needs: ["dockerbuild"]
   script:
     - echo "PROMOTING TO $TARGET_ENV"
     - podman login -u "$TARGET_REGISTRY_USERNAME" -p "$TARGET_REGISTRY_PASSWORD" "$TARGET_REGISTRY_HOST"
@@ -261,51 +66,47 @@ dockerbuild_prod:
     - podman tag "$SOURCE_IMAGE" "$TARGET_REGISTRY_HOST/$TARGET_PATH:$VERSION"
     - podman push "$TARGET_REGISTRY_HOST/$TARGET_PATH:$VERSION"
   when: manual
+  rules:
+    - when: manual
 
 promote_sit:
   <<: *promote_template
   variables:
     TARGET_ENV: "sit"
-    SOURCE_IMAGE: "${DEV_IMAGE_REGISTRY}${APP_NAME}:${VERSION}"
-    TARGET_REGISTRY_HOST: "${SIT_IMAGE_REGISTRY%/}"
-    TARGET_PATH: "${APP_NAME}"
+    TARGET_REGISTRY_HOST: "registry.dev.sbiepay.sbi:8443/library"
+    TARGET_PATH: "$APP_NAME"
 
 promote_uat:
   <<: *promote_template
   variables:
     TARGET_ENV: "uat"
-    SOURCE_IMAGE: "${DEV_IMAGE_REGISTRY}${APP_NAME}:${VERSION}"
-    TARGET_REGISTRY_HOST: "${UAT_IMAGE_REGISTRY%/}"
-    TARGET_PATH: "${APP_NAME}"
+    TARGET_REGISTRY_HOST: "registry.dev.sbiepay.sbi:8443/library"
+    TARGET_PATH: "$APP_NAME"
 
 promote_preprod:
   <<: *promote_template
   variables:
     TARGET_ENV: "pre-prod"
-    SOURCE_IMAGE: "${DEV_IMAGE_REGISTRY}${APP_NAME}:${VERSION}"
-    TARGET_REGISTRY_HOST: "${PREPROD_IMAGE_REGISTRY%/}"
-    TARGET_PATH: "${APP_NAME}"
+    TARGET_REGISTRY_HOST: "epaynonprod-registry-quay-quay-enterprise.apps.preprod.epay.sbi/fe"
+    TARGET_PATH: "$APP_NAME"
 
 promote_perf:
   <<: *promote_template
   variables:
     TARGET_ENV: "perf"
-    SOURCE_IMAGE: "${DEV_IMAGE_REGISTRY}${APP_NAME}:${VERSION}"
-    TARGET_REGISTRY_HOST: "${PERF_IMAGE_REGISTRY%/}"
-    TARGET_PATH: "${APP_NAME}"
+    TARGET_REGISTRY_HOST: "epaynonprod-registry-quay-quay-enterprise.apps.preprod.epay.sbi/fe"
+    TARGET_PATH: "$APP_NAME"
 
 promote_prod:
   <<: *promote_template
   variables:
     TARGET_ENV: "prod"
-    SOURCE_IMAGE: "${DEV_IMAGE_REGISTRY}${APP_NAME}:${VERSION}"
-    TARGET_REGISTRY_HOST: "${PROD_IMAGE_REGISTRY%/}"
-    TARGET_PATH: "${APP_NAME}"
+    TARGET_REGISTRY_HOST: "registry.prod.epay.sbi:8443/fe"
+    TARGET_PATH: "$APP_NAME"
 
 # =====================================================
-# 4) DEPLOY (Trigger CD with dynamic NGINX)
+# 4) DEPLOY WITH RUNTIME ENV CONFIG (DYNAMIC NGINX)
 # =====================================================
-
 .deploy_template: &deploy_template
   stage: deploy
   trigger:
@@ -316,38 +117,35 @@ promote_prod:
       yaml_variables: true
       pipeline_variables: true
   when: manual
+  rules:
+    - when: manual
 
 deploy_sit:
   <<: *deploy_template
   variables:
     ENV: "sit"
     VERSION: "$VERSION"
-    APP_BASE_URL: "$SIT_APP_BASE_URL"
 
 deploy_uat:
   <<: *deploy_template
   variables:
     ENV: "uat"
     VERSION: "$VERSION"
-    APP_BASE_URL: "$UAT_APP_BASE_URL"
 
 deploy_preprod:
   <<: *deploy_template
   variables:
     ENV: "pre-prod"
     VERSION: "$VERSION"
-    APP_BASE_URL: "$PREPROD_APP_BASE_URL"
 
 deploy_perf:
   <<: *deploy_template
   variables:
     ENV: "perf"
     VERSION: "$VERSION"
-    APP_BASE_URL: "$PERF_APP_BASE_URL"
 
 deploy_prod:
   <<: *deploy_template
   variables:
     ENV: "prod"
     VERSION: "$VERSION"
-    APP_BASE_URL: "$PROD_APP_BASE_URL"
