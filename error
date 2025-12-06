@@ -1,119 +1,12 @@
-default:
-  image: registry.dev.sbiepay.sbi:8443/library/rhelgit:latest
+include:
+  - project: 'epay/devops/ci-templates'
+    ref: main
+    file: 'ci/build/vite.react.yml'
 
-stages:
-  - build
-  - dockerbuild
-  - promote
-  - trigger_cd
+  - project: 'epay/devops/ci-templates'
+    ref: main
+    file: 'ci/release/version.yml'
 
-###############################################
-# BUILD FRONTEND
-###############################################
-build:
-  stage: build
-  image: node:18-alpine
-  script:
-    - npm ci
-    - npm run build
-  artifacts:
-    paths:
-      - dist
-    expire_in: 1h
-  rules:
-    - if: $CI_COMMIT_BRANCH =~ /^(develop|release.*|main)$/
-    - when: never
-
-###############################################
-# DOCKER BUILD
-###############################################
-dockerbuild:
-  stage: dockerbuild
-  image: quay.io/podman/stable:latest
-  needs:
-    - build
-  script:
-    - podman login -u "$DEV_REGISTRY_USERNAME" -p "$DEV_REGISTRY_PASSWORD" $DEV_IMAGE_REGISTRY
-    - podman build -t "$DEV_IMAGE_REGISTRY$APP_NAME:$CI_COMMIT_SHORT_SHA" .
-    - podman push "$DEV_IMAGE_REGISTRY$APP_NAME:$CI_COMMIT_SHORT_SHA"
-    - echo "IMAGE_TAG=$CI_COMMIT_SHORT_SHA" >> docker.env
-  artifacts:
-    reports:
-      dotenv: docker.env
-  rules:
-    - if: $CI_COMMIT_BRANCH == "develop"
-    - when: never
-
-###############################################
-# PROMOTION TEMPLATE
-###############################################
-.promote_template: &promote_template
-  stage: promote
-  image: quay.io/podman/stable:latest
-  needs:
-    - dockerbuild
-  script:
-    - podman login -u "$TARGET_REGISTRY_USERNAME" -p "$TARGET_REGISTRY_PASSWORD" "$TARGET_REGISTRY_HOST"
-    - podman pull "$DEV_IMAGE_REGISTRY$APP_NAME:$IMAGE_TAG"
-    - podman tag "$DEV_IMAGE_REGISTRY$APP_NAME:$IMAGE_TAG" "$TARGET_REGISTRY_HOST/$TARGET_REGISTRY_PATH:$IMAGE_TAG"
-    - podman push "$TARGET_REGISTRY_HOST/$TARGET_REGISTRY_PATH:$IMAGE_TAG"
-  when: manual
-  rules:
-    - when: manual
-
-promote_to_sit:
-  <<: *promote_template
-  variables:
-    TARGET_REGISTRY_HOST: $SIT_IMAGE_REGISTRY
-    TARGET_REGISTRY_PATH: "ubi9/$APP_NAME"
-
-promote_to_uat:
-  <<: *promote_template
-  variables:
-    TARGET_REGISTRY_HOST: $UAT_IMAGE_REGISTRY
-    TARGET_REGISTRY_PATH: "fe/$APP_NAME"
-
-promote_to_preprod:
-  <<: *promote_template
-  variables:
-    TARGET_REGISTRY_HOST: $PREPROD_IMAGE_REGISTRY
-    TARGET_REGISTRY_PATH: "fe/$APP_NAME"
-
-promote_to_prod:
-  <<: *promote_template
-  variables:
-    TARGET_REGISTRY_HOST: $PROD_IMAGE_REGISTRY
-    TARGET_REGISTRY_PATH: "fe/$APP_NAME"
-
-###############################################
-# TRIGGER CD
-###############################################
-.trigger_cd_job: &trigger_cd_job
-  stage: trigger_cd
-  trigger:
-    project: "epay/devops/deployment"
-    branch: "feature/dynamicnginx"
-    strategy: depend
-  when: manual
-  rules:
-    - when: manual
-
-trigger_deploy_sit:
-  <<: *trigger_cd_job
-  variables:
-    ENV: sit
-
-trigger_deploy_uat:
-  <<: *trigger_cd_job
-  variables:
-    ENV: uat
-
-trigger_deploy_preprod:
-  <<: *trigger_cd_job
-  variables:
-    ENV: pre-prod
-
-trigger_deploy_prod:
-  <<: *trigger_cd_job
-  variables:
-    ENV: prod
+  - project: 'epay/devops/ci-templates'
+    ref: main
+    file: 'cd/helm/services.yml'
