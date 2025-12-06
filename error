@@ -1,57 +1,11 @@
-.build:
-  stage: build
-  image:
-    name: registry.dev.sbiepay.sbi:8443/ubi9/reactjs_npm:20241113
-    pull_policy: always
-
-  script:
-    - echo "=== BUILD STARTED FOR ENV: $ENV ==="
-    - pwd
-    - ls -la
-
-    # ----------------------------------------------------
-    # NEW: Added proxy setup (required for SBI network)
-    # ----------------------------------------------------
-    - npm config set proxy http://serverswg.sbi.co.in:80
-    - npm config set https-proxy http://serverswg.sbi.co.in:9090
-
-    # ----------------------------------------------------
-    # NEW: Safe cache clean before install
-    # ----------------------------------------------------
-    - echo "=== Cleaning NPM Cache ==="
-    - npm cache clean --force
-
-    # ----------------------------------------------------
-    # NEW: Improved VERSION logging
-    # ----------------------------------------------------
-    - |
-      if [ -n "$VERSION" ]; then
-        echo "Using VERSION=${VERSION}"
-      else
-        echo "VERSION not set — using default commit SHA"
-      fi
-
-    # ----------------------------------------------------
-    # CHANGED: npm install → npm ci (faster + safer)
-    # Fallback: if npm ci fails → npm install
-    # ----------------------------------------------------
-    - echo "=== Installing Dependencies ==="
-    - npm ci || npm install
-
-    # ----------------------------------------------------
-    # SAME: Build frontend based on ENV
-    # ----------------------------------------------------
-    - echo "=== Running frontend build for ENV: $ENV ==="
-    - npm run build:$ENV
-
-    # ----------------------------------------------------
-    # NEW: Better dist output logs
-    # ----------------------------------------------------
-    - echo "=== BUILD COMPLETED — LISTING dist ==="
-    - ls -lrth dist || echo "dist folder missing!"
-    
-  artifacts:
-    paths:
-      - dist/   # NEW: corrected artifact path (cleaner)
-    when: on_success
-    expire_in: 1 week
+Failed
+ Namdev Anantrao Gadve created pipeline for commit 46114e04  just now, finished just now
+For release/v1.ci
+latest
+ 
+yaml invalid
+ 
+error
+  0 jobs
+Unable to create pipeline
+jobs:build:script config should be a string or a nested array of strings up to 10 levels deep
