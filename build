@@ -1,0 +1,31 @@
+.build:
+  stage: build
+  image:
+    name: registry.dev.sbiepay.sbi:8443/ubi9/reactjs_npm:20241113
+    pull_policy: always
+
+  script:
+    - echo "=== BUILD STARTED FOR ENV: $ENV ==="
+    - pwd
+    - ls -la
+    - npm config set proxy http://serverswg.sbi.co.in:80
+    - npm config set https-proxy http://serverswg.sbi.co.in:9090
+    - npm cache clean --force
+
+    # VERSION check (single-line, safe)
+    - test -n "$VERSION" && echo "Using VERSION=$VERSION" || echo "VERSION not set"
+
+    # Install dependencies
+    - npm ci || npm install
+
+    # Run the environment-specific build
+    - npm run build:$ENV
+
+    - echo "=== BUILD COMPLETE ==="
+    - ls -lrth dist || echo "dist missing"
+
+  artifacts:
+    paths:
+      - dist/
+    when: on_success
+    expire_in: 1 week
